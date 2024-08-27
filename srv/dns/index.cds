@@ -16,9 +16,9 @@ service dns {
     dns.type: 1,
   )
   entity A {
-    name : name;
-    ip   : Binary(4);
-    url  : String(15);
+    key name : name;
+        ip   : Binary(4);
+        url  : String(15);
   };
 
   @(
@@ -26,9 +26,18 @@ service dns {
     dns.type: 28,
   )
   entity AAAA {
-    name : name;
-    ip   : Binary(16);
-    url  : String(39);
+    key name : name;
+        ip   : Binary(16);
+        url  : String(39);
+  };
+
+  @(
+    cds.persistence.skip,
+    dns.type: 65,
+  )
+  entity HTTPS {
+    key name  : name;
+        alias : name;
   };
 }
 

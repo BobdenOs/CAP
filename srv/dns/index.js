@@ -1,4 +1,5 @@
 const cds = require("@sap/cds");
+const LOG = cds.log('dns')
 const cqn4sql = require("@cap-js/db-service/lib/cqn4sql");
 
 const util = require("util");
@@ -15,17 +16,27 @@ module.exports = class DNSService extends cds.ApplicationService {
       1: {}, // A
       5: {}, // CNAME
       28: {}, // AAAA
+      65: {}, // HTTPS
     };
     this._cache = {
       1: new WeakCache(), // A
       5: new WeakCache(), // CNAME
       28: new WeakCache(), // AAAA
+      65: new WeakCache(), // HTTPS
     };
 
     this.on(["SELECT"], this.onSELECT);
     this.on(["INSERT"], this.onINSERT);
 
-    return this.listen(5353);
+    await this.listen(5353);
+
+    await this.run(INSERT([
+      { name: 'sap.cap', url: '127.0.0.1' },
+    ]).into('A'))
+
+    await this.run(INSERT([
+      { name: 'sap.cap', url: '[::]' },
+    ]).into('AAAA'))
   }
 
   async listen(port) {
@@ -38,6 +49,7 @@ module.exports = class DNSService extends cds.ApplicationService {
     const server = (this.server = dgram.createSocket({ type: "udp4", signal }));
 
     server.on("message", this.handler.bind(this));
+    server.on('error', err => { console.log(err) })
 
     await util.promisify(server.bind.bind(server))(port);
     // Uses localhost for all dns calls (except lookup)
@@ -90,6 +102,7 @@ module.exports = class DNSService extends cds.ApplicationService {
 
   async resolve(msg) {
     const req = this.parse(msg);
+    LOG?.(req.questions.map(q => q.type + ' ' + q.name.map(n => n + '')).join('\n'))
 
     let results = [];
     const unknown = [];
@@ -203,14 +216,14 @@ module.exports = class DNSService extends cds.ApplicationService {
   }
 
   async onSELECT(req) {
-    const filter = (answer) => answer.type === type
+    const q = cqn4sql(req.query, this.model);
+    let found = false
+    const filter = q.SELECT.one ? (answer) => found ? false : (found = answer.type === type) : (answer) => answer.type === type
     const parser = (answer) => ({
       name: answer.name.join("."),
       ip: answer.data,
       url: ipToUrl(answer.data),
     });
-
-    const q = cqn4sql(req.query, this.model);
 
     const type = q.target["@dns.type"];
     const name = q.SELECT.where
@@ -326,9 +339,9 @@ const ipToUrl = (ip) => {
   return ip.byteLength === 4
     ? [...ip].join(".")
     : ip
-        .toString("hex")
-        .match(/.{1,4}/g)
-        .join(":");
+      .toString("hex")
+      .match(/.{1,4}/g)
+      .join(":");
 };
 
 const toEntries = (q) => {

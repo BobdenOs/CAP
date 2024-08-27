@@ -132,10 +132,11 @@ class Message {
       if (!question.buffer) {
         let offset = 0;
         question.buffer = Buffer.allocUnsafe(question.name.length + 6);
-        question.name.split(/[.,]/).map((label) => {
+        question.name = question.name.split(/[.,]/).map((label) => {
           question.buffer.writeUInt8(label.length, offset++);
           question.buffer.write(label, offset, label.length, "ascii");
           offset += label.length;
+          return question.buffer.subarray(offset, offset + label.length)
         });
         question.buffer.writeUInt8(0, offset++);
         question.buffer.writeUInt16BE(question.type, offset);

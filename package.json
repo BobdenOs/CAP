@@ -6,13 +6,15 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
-    "@sap/cds": "^7",
+    "@sap/cds": "^8",
     "express": "^4"
   },
   "devDependencies": {
     "@cap-js/sqlite": "^1"
   },
   "scripts": {
-    "start": "cds-serve"
+    "start": "cds-serve",
+    "dns:on": "sudo cp /etc/resolv.conf ./org.resolv.conf && sudo cp resolv.conf /etc/resolv.conf && sudo iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:5353",
+    "dns:off": "sudo cp org.resolv.conf /etc/resolv.conf && sudo iptables -t nat -F"
   }
 }
