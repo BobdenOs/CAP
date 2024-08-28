@@ -32,10 +32,12 @@ module.exports = class DNSService extends cds.ApplicationService {
 
     await this.run(INSERT([
       { name: 'sap.cap', url: '127.0.0.1' },
+      { name: 'www.sap.cap', url: '127.0.0.1' },
     ]).into('A'))
 
     await this.run(INSERT([
-      { name: 'sap.cap', url: '[::]' },
+      { name: 'sap.cap', url: '0:0:0:0:0:0:0:1' },
+      { name: 'www.sap.cap', url: '0:0:0:0:0:0:0:1' },
     ]).into('AAAA'))
   }
 
@@ -105,6 +107,7 @@ module.exports = class DNSService extends cds.ApplicationService {
     LOG?.(req.questions.map(q => q.type + ' ' + q.name.map(n => n + '')).join('\n'))
 
     let results = [];
+    let authorities = [];
     const unknown = [];
     for (const question of req.questions) {
       const cache = this.cache(question);
@@ -119,7 +122,9 @@ module.exports = class DNSService extends cds.ApplicationService {
     if (unknown.length) {
       const res = await this.forward(msg);
 
-      res.authorities;
+      if (res.authorities.length) {
+        authorities = res.authorities
+      }
 
       // Clear results and old cache entries
       results = [];
@@ -136,24 +141,36 @@ module.exports = class DNSService extends cds.ApplicationService {
 
     results = results.flat();
     const copy = Buffer.allocUnsafe(
-      msg.byteLength + results.reduce((l, c) => l + c.buffer.byteLength, 0)
+      msg.byteLength +
+      results.reduce((l, c) => l + c.buffer.byteLength, 0) +
+      authorities.reduce((l, c) => l + c.buffer.byteLength, 0)
     );
 
     let offset = msg.byteLength;
     msg.copy(copy, 0, 0, msg.byteLength);
+
+    // Set response flag
+    copy.writeUInt16BE(copy.readUInt16BE(2) | (1 << 15), 2);
+
     for (const result of results) {
       result.buffer.copy(copy, offset, 0, result.buffer.byteLength);
       offset += result.buffer.byteLength;
     }
 
-    // Set response flag
-    copy.writeUInt16BE(copy.readUInt16BE(2) | (1 << 15), 2);
     copy.writeUInt16BE(results.length, 6);
+
+    for (const authority of authorities) {
+      authority.buffer.copy(copy, offset, 0, authority.buffer.byteLength);
+      offset += authority.buffer.byteLength;
+    }
+    copy.writeUInt16BE(authorities.length, 8);
+
     return copy;
   }
 
   async forward(msg) {
     const errors = [];
+    if (this._fallback.length === 0) return this.parse(msg)
     for (const server of this._fallback) {
       try {
         return await new Promise((resolve, reject) => {

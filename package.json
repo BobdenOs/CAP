@@ -13,8 +13,9 @@
     "@cap-js/sqlite": "^1"
   },
   "scripts": {
-    "start": "cds-serve",
-    "dns:on": "sudo cp /etc/resolv.conf ./org.resolv.conf && sudo cp resolv.conf /etc/resolv.conf && sudo iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:5353",
-    "dns:off": "sudo cp org.resolv.conf /etc/resolv.conf && sudo iptables -t nat -F"
+    "start": "npm run dns:off && cds-serve",
+    "dns:on": "./srv/dns/on.sh",
+    "dns:off": "./srv/dns/off.sh",
+    "browser": "npm run dns:on && chromium http://sap.cap/"
   }
 }
