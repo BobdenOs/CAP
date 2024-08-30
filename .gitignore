@@ -131,3 +131,6 @@ dist
 
 # local dns injection cache
 org.resolv.conf
+
+# local deployed application storage
+apps/

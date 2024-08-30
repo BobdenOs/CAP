@@ -5,15 +5,31 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "cds serve",
+      "name": "start",
       "request": "launch",
       "type": "node",
       "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "cds",
+      "runtimeExecutable": "npm",
+      "env": {
+        "DEBUG": "trace"
+      },
       "args": [
-        "serve",
-        "--with-mocks",
-        "--in-memory?"
+        "run",
+        "start"
+      ],
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "browser",
+      "request": "launch",
+      "type": "node",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "args": [
+        "run",
+        "browser"
       ],
       "skipFiles": [
         "<node_internals>/**"

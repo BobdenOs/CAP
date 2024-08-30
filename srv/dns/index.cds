@@ -41,5 +41,4 @@ service dns {
   };
 }
 
-type label : String(255);
 type name  : String(5000);
