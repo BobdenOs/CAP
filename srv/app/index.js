@@ -1,4 +1,5 @@
 const net = require('net')
+const { Readable } = require('stream')
 
 const cds = require("@sap/cds");
 const cqn4sql = require("@cap-js/db-service/lib/cqn4sql");
@@ -57,7 +58,17 @@ module.exports = class APPService extends cds.ApplicationService {
     const appsFolder = `${process.cwd()}/apps/`
     const appFolder = `${appsFolder}${application}`
     await fs.mkdir(appFolder, { recursive: true })
-    const tar = cds.utils.tar.xz(q.UPDATE.data.src).to(appFolder)
+
+    const archive = cds.utils.fs.createWriteStream(`${appFolder}/archive.tar`)
+
+    // Split the stream into two streams for storing and unpacking at the same time
+    const [toTar, toArchive] = Readable.toWeb(q.UPDATE.data.src).tee().map(s => Readable.fromWeb(s))
+
+    // Stream archive to disk as is
+    toArchive.pipe(archive)
+
+    // Stream archive into tar to be unpacked
+    const tar = cds.utils.tar.xz(toTar).to(appFolder)
     await tar
 
     // when usign npm pack there is a package folder which is moved to root
