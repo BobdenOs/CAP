@@ -1,0 +1,5 @@
+{
+  "AutoSelectCertificateForUrls": [
+    "{\"pattern\":\"https://[*.]cap/*\",\"filter\":{\"ISSUER\":{\"CN\":\"CAP Root CA\"}}}"
+  ]
+}

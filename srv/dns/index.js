@@ -242,7 +242,7 @@ module.exports = class DNSService extends cds.ApplicationService {
       url: ipToUrl(answer.data),
     });
 
-    const type = q.target["@dns.type"];
+    const type = q._target["@dns.type"];
     const name = q.SELECT.where
       ?.find((c) => typeof c.val === "string")
       .val.split(".")
@@ -278,7 +278,7 @@ module.exports = class DNSService extends cds.ApplicationService {
   async onINSERT(req) {
     const q = cqn4sql(req.query, this.model);
 
-    const type = q.target["@dns.type"];
+    const type = q._target["@dns.type"];
 
     toEntries(q);
 

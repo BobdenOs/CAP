@@ -134,3 +134,13 @@ org.resolv.conf
 
 # local deployed application storage
 apps/
+
+# local fs service storage
+storage/
+
+# local authentication certificates
+ssl/**/*.crt
+ssl/**/*.key
+ssl/**/*.csr
+ssl/**/*.srl
+ssl/**/*.p12

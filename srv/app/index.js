@@ -1,4 +1,3 @@
-const net = require('net')
 const { Readable } = require('stream')
 
 const cds = require("@sap/cds");
@@ -20,6 +19,8 @@ module.exports = class APPService extends cds.ApplicationService {
     this.on(["SELECT"], this.onSELECT);
     this.on(["INSERT"], this.onINSERT);
     this.on(["UPDATE"], this.onUPDATE);
+
+    cds.on('listening', () => this._loadApps())
   }
 
   disconnect() { }
@@ -48,38 +49,46 @@ module.exports = class APPService extends cds.ApplicationService {
     const app = await this._ensureApplication(application)
     if (app.status === 'running') {
       app.status = 'upgrading'
-      await new Promise(resolve => app.server.close(resolve))
     }
-
-    const fs = cds.utils.fs.promises
-
     // TODO: Add mtar support ?
     // Extract uploaded archive as .tar format (used for npm pack uploads)
     const appsFolder = `${process.cwd()}/apps/`
     const appFolder = `${appsFolder}${application}`
-    await fs.mkdir(appFolder, { recursive: true })
 
-    const archive = cds.utils.fs.createWriteStream(`${appFolder}/archive.tar`)
+    if (q.UPDATE.data?.src) {
+      await cds.utils.fs.promises.mkdir(appFolder, { recursive: true })
 
-    // Split the stream into two streams for storing and unpacking at the same time
-    const [toTar, toArchive] = Readable.toWeb(q.UPDATE.data.src).tee().map(s => Readable.fromWeb(s))
+      // Split the stream into two streams for storing and unpacking at the same time
+      const [toTar, toFs] = Readable.toWeb(q.UPDATE.data.src).tee().map(s => Readable.fromWeb(s))
 
-    // Stream archive to disk as is
-    toArchive.pipe(archive)
+      // Store archive to sap.cap.fs service
+      const fs = await this.fs
+      const update = fs.run(
+        cds.ql.UPDATE(fs.entities.files)
+          .with({ dataType: 'application/x-tar', data: toFs })
+          .where`name=${application}`
+      )
 
-    // Stream archive into tar to be unpacked
-    const tar = cds.utils.tar.xz(toTar).to(appFolder)
-    await tar
+      // Stream archive into tar to be unpacked
+      const tar = cds.utils.tar.xz(toTar).to(appFolder)
+      await Promise.all([tar, update])
+    } else {
+      const fs = await this.fs
+      const chunks = await fs.run(cds.ql.SELECT('data').from(fs.entities.chunks, { 'file.name': application }))
+      if (chunks.length !== 1) {
+        app.status = 'failed'
+        return { changes: 1 }
+      }
+      const [{ data: toTar }] = chunks
+      // Stream archive into tar to be unpacked
+      const tar = cds.utils.tar.xz(toTar).to(appFolder)
+      await tar
+    }
 
     // when usign npm pack there is a package folder which is moved to root
     const packageFolder = `${appFolder}/package`
-    await fs.cp(packageFolder, appFolder, { recursive: true })
-    await fs.rm(packageFolder, { force: true, recursive: true })
-
-    // update default index page with the latest application
-    const _app_links = cds.utils.fs.find(appsFolder, ['*/app/*.html', '*/app/*/*.html', '*/app/*/*/*.html'])
-      .map(file => 'http://' + cds.utils.fs.path.relative(appsFolder, file).replace(/\\/g, '/').replace('/app/', '.sap.cap/'))
-    Object.defineProperty(landingPage, 'html', htmlGetter)
+    await cds.utils.fs.promises.cp(packageFolder, appFolder, { recursive: true })
+    await cds.utils.fs.promises.rm(packageFolder, { force: true, recursive: true })
 
     const rootDB = cds.db
     const rootApp = cds.app
@@ -87,59 +96,73 @@ module.exports = class APPService extends cds.ApplicationService {
     const rootServices = cds.services
     const rootProviders = cds.service.providers
 
-    cds.db = undefined
-    cds.app = undefined
-    cds.model = undefined
-    cds.services = {}
-    cds.service.providers = []
+    try {
+      const csn = await cds.load(`apps/${app.name}/*`)
+      const model = cds.compile.for.nodejs(csn)
 
-    // Serve bookshop app on own port
-    const server = await cds.server({
-      port: app.port,
-      from: `apps/${app.name}/*`,
-      in_memory: true,
-      static: `apps/${app.name}/app`
-    })
+      cds.db = { __proto__: rootDB, model }
+      // cds.app = undefined
+      cds.model = model
+      cds.services = {}
+      cds.service.providers = []
 
-    Object.defineProperty(app, 'db', { value: cds.db, configurable: true })
-    Object.defineProperty(app, 'model', { value: (app.db.model = cds.model), configurable: true })
-    Object.defineProperty(app, 'server', { value: server, configurable: true })
-    Object.defineProperty(app, 'services', { value: cds.services, configurable: true })
-    Object.defineProperty(app, 'providers', { value: cds.service.providers, configurable: true })
+      // Serve app
+      await cds.serve('all').in(rootApp)
+      cds.app.serve('/').from(`${appsFolder}${app.name}`, 'app')
+      await cds.deploy(csn).to(cds.db)
+
+      for (const each of cds.service.providers) {
+        const endpoint = each.endpoints[0]
+        cds.service.bindings.provides[each.name] = {
+          kind: endpoint.kind,
+          credentials: {
+            url: `${app.name}.sap.cap${endpoint.path}`
+          }
+        }
+      }
+
+      Object.defineProperty(app, 'db', { value: cds.db, configurable: true })
+      Object.defineProperty(app, 'model', { value: (app.db.model = cds.model), configurable: true })
+      Object.defineProperty(app, 'services', { value: cds.services, configurable: true })
+      Object.defineProperty(app, 'providers', { value: cds.service.providers, configurable: true })
+
+      // update default index page with the latest application
+      const _app_links = cds.utils.fs.find(appsFolder, ['*/app/*.html', '*/app/*/*.html', '*/app/*/*/*.html'])
+        .map(file => 'https://' + cds.utils.fs.path.relative(appsFolder, file).replace(/\\/g, '/').replace('/app/', '.sap.cap/'))
+      Object.defineProperty(landingPage, 'html', htmlGetter)
+      rootApp._app_links = _app_links
+    } finally {
+      cds.db = rootDB
+      cds.app = rootApp
+      cds.model = rootModel
+      cds.services = rootServices
+      cds.service.providers = rootProviders
+
+      const dns = await cds.connect.to('sap.cap.dns')
+      const { A } = dns.entities
+
+      const ownip = await dns.run(SELECT(A).where([{ ref: ['name'] }, '=', { val: 'sap.cap' }]))
+      await dns.run(INSERT(ownip.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(A))
+
+      app.status = 'failed'
+    }
 
     app.status = 'running'
-
-    cds.db = rootDB
-    cds.app = rootApp
-    cds.model = rootModel
-    cds.services = rootServices
-    cds.service.providers = rootProviders
-
-    cds.app._app_links = _app_links
-
-    const dns = await cds.connect.to('sap.cap.dns')
-    const { A } = dns.entities
-
-    const ownip = await dns.run(SELECT(A).where([{ ref: ['name'] }, '=', { val: 'sap.cap' }]))
-    await dns.run(INSERT(ownip.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(A))
 
     return { changes: 1 }
   }
 
-  async _ensurePort() {
-    const validate = port => new Promise(resolve => {
-      const srv = net.createServer()
-      srv.once('error', () => resolve(false))
-      srv.listen(port, () => srv.close(() => resolve(true)))
-    })
+  get fs() {
+    return super.fs = cds.connect.to('sap.cap.fs').then(fs => fs.bind(this))
+  }
 
-    for (let port = 5000; port < 65535; port++) {
-      if (!this._store.ports[port] && await validate(port)) {
-        this._store.ports[port] = true
-        return port
-      }
+  async _loadApps() {
+    const fs = await this.fs
+    const applications = await fs.run(cds.ql.SELECT.from(fs.entities.files))
+
+    for (const application of applications) {
+      await this.run(cds.ql.UPDATE(this.entities.applications).where`name=${application.name}`)
     }
-    throw new Error('Failed to locate ')
   }
 
   async _ensureApplication(application) {
@@ -156,7 +179,7 @@ module.exports = class APPService extends cds.ApplicationService {
     this._store.applications.push(created)
     this._store.index[application] = created
 
-    created.port = await this._ensurePort()
+    created.port = cds.app.server.address().port
 
     return created
   }
@@ -187,12 +210,13 @@ Object.defineProperty(cds.service, 'providers', {
   set(providers) { cds.service._providers = providers }
 })
 
-const _run = cds._context.run
-cds._context.run = function (context) {
+const _with = cds._with
+cds._with = function (context) {
   // context = context.context || context
   const app = context.http?.req?.host.slice(0, -8)
   const apps = cds.services['sap.cap.app']?.apps
   if (apps?.[app]) {
+    // Object.defineProperty(landingPage, 'html', htmlGetter)
     context.db = apps[app].db
     context.services = apps[app].services
     context.providers = apps[app].providers
@@ -204,5 +228,5 @@ cds._context.run = function (context) {
     context.services = cds.context.services
     context.providers = cds.context.providers
   }
-  return _run.apply(this, arguments)
+  return _with.apply(this, arguments)
 }

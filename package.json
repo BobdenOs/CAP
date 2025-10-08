@@ -6,16 +6,36 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
-    "@sap/cds": "^8",
-    "express": "^4"
+    "@sap/cds": "^9",
+    "express": "^4",
+    "undici": "^7.16.0"
+  },
+  "bin": {
+    "cap-deploy": "srv/app/deploy.sh"
   },
   "devDependencies": {
-    "@cap-js/sqlite": "^1"
+    "@cap-js/cds-test": "^0.4.0",
+    "@cap-community/cap": ".",
+    "@cap-js/sqlite": "^2.0.2"
   },
   "scripts": {
     "start": "npm run dns:off && cds-serve",
+    "test": "cds-test",
     "dns:on": "./srv/dns/on.sh",
     "dns:off": "./srv/dns/off.sh",
-    "browser": "npm run dns:on && chromium http://sap.cap/"
+    "ssl:root": "./ssl/root.sh",
+    "ssl:server": "./ssl/server.sh",
+    "ssl:client": "./ssl/client.sh",
+    "browser": "npm run dns:on && chromium https://sap.cap/"
+  },
+  "workspaces": [
+    "capire/*"
+  ],
+  "cds": {
+    "requires": {
+      "auth": {
+        "impl": "srv/sec/auth.js"
+      }
+    }
   }
 }
