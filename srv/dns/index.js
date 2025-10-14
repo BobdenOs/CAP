@@ -2,13 +2,16 @@ const cds = require("@sap/cds");
 const LOG = cds.log('dns')
 const cqn4sql = require("@cap-js/db-service/lib/cqn4sql");
 
-const util = require("util");
+const crypto = require('node:crypto');
 
-const dns = require("dns");
-const dgram = require("dgram");
+const dns = require("node:dns");
+const dgram = require("node:dgram");
 
 const WeakCache = require('./weakcache')
-const Message = require('./message')
+const Message = require('./message');
+
+const ipv4Namespace = Buffer.from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255])
+const ipv6Loopback = Buffer.from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
 
 module.exports = class DNSService extends cds.ApplicationService {
   async init() {
@@ -28,17 +31,20 @@ module.exports = class DNSService extends cds.ApplicationService {
     this.on(["SELECT"], this.onSELECT);
     this.on(["INSERT"], this.onINSERT);
 
-    await this.listen(5353);
+    const cert = new crypto.X509Certificate(await cds.utils.fs.promises.readFile(process.env.CF_INSTANCE_CERT))
+    const names = cert.subjectAltName
+      .split(',')
+      .map(p => /^ *DNS:([^*]*)/.exec(p)?.[1])
+      .filter(a => a)
 
-    await this.run(INSERT([
-      { name: 'sap.cap', url: '127.0.0.1' },
-      { name: 'www.sap.cap', url: '127.0.0.1' },
-    ]).into('A'))
+    this._names = names
+    await Promise.all([
+      this.run(INSERT(names.map(name => ({ name, url: '127.0.0.1' }))).into('A')),
+      this.run(INSERT(names.map(name => ({ name, url: '::1' }))).into('AAAA')),
+    ])
+    await this.listen(5353)
 
-    await this.run(INSERT([
-      { name: 'sap.cap', url: '0:0:0:0:0:0:0:1' },
-      { name: 'www.sap.cap', url: '0:0:0:0:0:0:0:1' },
-    ]).into('AAAA'))
+    this.domains().catch(err => { LOG?.(err.message) })
   }
 
   async listen(port) {
@@ -51,9 +57,18 @@ module.exports = class DNSService extends cds.ApplicationService {
     const server = (this.server = dgram.createSocket({ type: "udp4", signal }));
 
     server.on("message", this.handler.bind(this));
-    server.on('error', err => { console.log(err) })
+    server.on('error', err => {
+      console.log(err)
+      this.server = undefined
+      this._controller.abort()
+    })
+    server.on('listening', () => {
+      const address = server.address();
+      console.log(`dns listening ${address.address}:${address.port}`);
+    })
 
-    await util.promisify(server.bind.bind(server))(port);
+    server.bind(port)
+
     // Uses localhost for all dns calls (except lookup)
     dns.setServers([`127.0.0.1:${port}`]);
     // Make lookup query the dns logic directly
@@ -87,6 +102,56 @@ module.exports = class DNSService extends cds.ApplicationService {
       const answer = answers[0];
       return cb(null, ipToUrl(answer.data), answer.type === 1 ? 4 : 6);
     }.bind(this);
+  }
+
+  async domains() {
+    const domains = {}
+    for (const name of this._names) {
+      const split = name.split('.')
+      while (split.length) {
+        domains[split.join('.')] = true
+        split.shift()
+      }
+    }
+
+    const proms = []
+    for (const domain in domains) proms.push(this.synchronize(domain))
+
+    await Promise.all(proms)
+  }
+
+  async synchronize(domain) {
+    try {
+      const remote = await cds.connect.to(this.name, {
+        kind: 'odata',
+        credentials: {
+          url: `https://${domain}/odata/v4/dns`,
+          mtls: true,
+          trustStoreCertificate: {
+            content: btoa(await cds.utils.fs.promises.readFile(__dirname + '/../../ssl/ca/ca.crt'))
+          }
+        }
+      })
+
+      const inserts = this._names.map(name => [
+        INSERT({ name, url: '127.0.0.1' }).into('A'),
+        INSERT({ name, url: '::1' }).into('AAAA'),
+      ])
+
+      await Promise.all(inserts.map(q => remote.run(q)))
+
+      const [A, AAAA] = await Promise.all([
+        remote.run(cds.ql.SELECT.from(this.entities.A)),
+        remote.run(cds.ql.SELECT.from(this.entities.AAAA)),
+      ])
+
+      await this.run(INSERT(A).into('A'))
+      await this.run(INSERT(AAAA).into('AAAA'))
+    } catch (err) { // If the current host doesn't exist the server becomes the dns provider
+      if (err.reason.code === 'ECONNREFUSED') return this.synchronize(domain)
+      // TODO: find why at some point the ip becomes undefined
+      // debugger
+    }
   }
 
   async disconnect() {
@@ -288,7 +353,20 @@ module.exports = class DNSService extends cds.ApplicationService {
     const answers = [];
     for (let entry of entries) {
       const name = entry.name;
-      const ip = entry.ip || (entry.url && urlToIp(entry.url, type));
+      const http = req.context.tx === req.tx && req.http
+      let ip
+      if (http) {
+        ip = urlToIp(http.req.client.remoteAddress, { IPv4: 1, IPv6: 28 }[http.req.client.remoteFamily])
+        if (type === 1) {
+          if (ip?.length === 16 && ip.subarray(0, 12).compare(ipv4Namespace) === 0) ip = ip.subarray(12)
+        }
+        if (type === 28) {
+          if (ip?.length !== 16) ip = undefined
+        }
+      }
+      if (!ip) {
+        ip = (entry.ip && Buffer.from(entry.ip, 'base64')) || (entry.url && urlToIp(entry.url, type));
+      }
       if (!name && !ip) continue;
       if (!name) {
         errors.push(new Error(`Missing name for "${ip}"`));
@@ -297,6 +375,9 @@ module.exports = class DNSService extends cds.ApplicationService {
       if (!ip) {
         errors.push(new Error(`Missing ip for "${name}"`));
         continue;
+      }
+      if (http) {
+        if ((type === 1 && ip[0] === 127) || (type === 28 && ip.compare(ipv6Loopback) === 0)) errors.push(new Error(`Invalid loopback ip for "${name}"`));
       }
 
       answers.push({
@@ -318,7 +399,7 @@ module.exports = class DNSService extends cds.ApplicationService {
     for (const answer of parsedAnswers) {
       const store = (this._store[answer.type][answer.name] =
         this._store[answer.type][answer.name] || []);
-      store.push(answer);
+      store.unshift(answer);
     }
 
     return answers.length;
@@ -337,12 +418,15 @@ const urlToIp = (url, type) => {
     return Buffer.from(split);
   };
   const ipv6 = (url) => {
+    const dots = url.indexOf('.') > -1 ? 1 : 0
     const parts = url
-      .split(":")
+      .split(/[:]/)
       .map((p, i, arr) =>
         p === "" && i > 0
-          ? "".padStart((9 - arr.length) * 4, "0")
-          : p.padStart(4, "0")
+          ? "".padStart((9 - arr.length - dots) * 4, "0")
+          : p.indexOf('.') > -1
+            ? ipv4(p)?.toString('hex')
+            : p.padStart(4, "0")
       );
     const str = parts.join("");
     if (str.length !== 32) return;

@@ -1,0 +1,96 @@
+services:
+
+  cap:
+    image: "node:lts"
+    user: "node"
+    working_dir: /home/node/app
+    environment:
+      - PORT=443
+      - NODE_ENV=production
+      - NODE_EXTRA_CA_CERTS=/home/node/app/ssl/ca/ca.crt
+    volumes:
+      - ./:/home/node/app
+      - ./ssl/servers/cap.crt:/home/node/app/server.crt
+      - ./ssl/servers/cap.key:/home/node/app/server.key
+    ports:
+      - "9000:9229"
+    networks:
+      cap_network:
+        ipv4_address: 192.168.2.10
+    command: ["npm", "run", "debug"]
+
+  sap.cap:
+    image: "node:lts"
+    user: "node"
+    working_dir: /home/node/app
+    environment:
+      - PORT=443
+      - NODE_ENV=production
+      - NODE_EXTRA_CA_CERTS=/home/node/app/ssl/ca/ca.crt
+    volumes:
+      - ./:/home/node/app
+      - ./ssl/servers/sap.cap.crt:/home/node/app/server.crt
+      - ./ssl/servers/sap.cap.key:/home/node/app/server.key
+    ports:
+      - "9001:9229"
+    networks:
+      cap_network:
+        ipv4_address: 192.168.2.11
+    command: ["npm", "run", "debug"]
+
+  dev.sap.cap:
+    image: "node:lts"
+    user: "node"
+    working_dir: /home/node/app
+    environment:
+      - PORT=443
+      - NODE_ENV=production
+      - NODE_EXTRA_CA_CERTS=/home/node/app/ssl/ca/ca.crt
+    volumes:
+      - ./:/home/node/app
+      - ./ssl/servers/dev.sap.cap.crt:/home/node/app/server.crt
+      - ./ssl/servers/dev.sap.cap.key:/home/node/app/server.key
+    ports:
+      - "53:5353/udp"
+      - "443:443"
+      - "9002:9229"
+    networks:
+      cap_network:
+        ipv4_address: 192.168.2.12
+    command: ["npm", "run", "debug"]
+
+networks:
+  cap_network:
+    driver: bridge
+    enable_ipv6: false
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.2.0/24
+          gateway: 192.168.2.1
+
+# Windows commands to find the correct configurations
+# networks:
+#   default:
+#     enable_ipv6: true
+#     driver: macvlan
+#     driver_opts:
+#       parent: Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object Name, InterfaceDescription | Format-Table
+#     ipam:
+#       config:
+#         - subnet: Get-NetIPAddress -AddressFamily IPv6 | Where-Object {$_.IPAddress -notmatch "^(::1|127\.)" -and $_.IPAddress -notmatch "%"} | Select-Object @{Name="Subnet";Expression={if($_.PrefixLength -eq 64){($_.IPAddress -split ':')[0..3] -join ':' + '::/64'}else{$_.IPAddress + '/' + $_.PrefixLength}}}, InterfaceAlias | Format-Table
+#           ip_range: echo "Use the subnet from above, replace last 4 groups with ::1000:0:0:0 and change /64 to /68"
+#           gateway: Get-NetIPAddress -AddressFamily IPv6 | Where-Object {$_.IPAddress -match "^fe80"} | Select-Object IPAddress, InterfaceAlias | Format-Table
+#
+# IPv4 Alternative (if IPv6 is not available):
+# networks:
+#   default:
+#     driver: macvlan
+#     driver_opts:
+#       parent: Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object Name, InterfaceDescription | Format-Table
+#     ipam:
+#       config:
+#         - subnet: Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notmatch "^(127\.|169\.254\.)"} | Select-Object @{Name="Subnet";Expression={$_.IPAddress + '/' + $_.PrefixLength}}, InterfaceAlias | Format-Table
+#           ip_range: echo "Use a subset of the subnet above, e.g., if subnet is 192.168.1.0/24, use 192.168.1.100/28"
+#           gateway: Get-NetRoute -AddressFamily IPv4 -DestinationPrefix "0.0.0.0/0" | Select-Object NextHop, InterfaceAlias | Format-Table
+

@@ -5,34 +5,65 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "start",
+      "name": "Launch Docker",
+      "command": "npm run docker",
       "request": "launch",
-      "type": "node",
-      "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "npm",
-      "env": {
-        "DEBUG": "trace"
-      },
-      "args": [
-        "run",
-        "start"
-      ],
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "type": "node-terminal",
+      "autoAttachChildProcesses": false
     },
     {
-      "name": "browser",
-      "request": "launch",
+      "name": "Attach cap",
       "type": "node",
-      "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "npm",
-      "args": [
-        "run",
-        "browser"
-      ],
+      "request": "attach",
+      "port": 9000,
+      "address": "localhost",
+      "restart": false,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/home/node/app",
+      "skipFiles": [      ],
+      "presentation": {
+        "hidden": true,
+      }
+    },
+    {
+      "name": "Attach sap.cap",
+      "type": "node",
+      "request": "attach",
+      "port": 9001,
+      "address": "localhost",
+      "restart": false,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/home/node/app",
       "skipFiles": [
-        "<node_internals>/**"
+      ],
+      "presentation": {
+        "hidden": true,
+      }
+    },
+    {
+      "name": "Attach dev.sap.cap",
+      "type": "node",
+      "request": "attach",
+      "port": 9002,
+      "address": "localhost",
+      "restart": false,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/home/node/app",
+      "skipFiles": [
+      ],
+      "presentation": {
+        "hidden": true,
+      }
+    },
+  ],
+  "compounds": [
+    {
+      "name": "Attach",
+      "configurations": [
+        "Launch Docker",
+        "Attach cap",
+        "Attach sap.cap",
+        "Attach dev.sap.cap"
       ]
     }
   ]

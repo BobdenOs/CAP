@@ -90,6 +90,8 @@ module.exports = class APPService extends cds.ApplicationService {
     await cds.utils.fs.promises.cp(packageFolder, appFolder, { recursive: true })
     await cds.utils.fs.promises.rm(packageFolder, { force: true, recursive: true })
 
+    if (!cds.db) await cds.connect.to('db')
+
     const rootDB = cds.db
     const rootApp = cds.app
     const rootModel = cds.model
@@ -116,7 +118,7 @@ module.exports = class APPService extends cds.ApplicationService {
         cds.service.bindings.provides[each.name] = {
           kind: endpoint.kind,
           credentials: {
-            url: `${app.name}.sap.cap${endpoint.path}`
+            url: `${app.name}.dev.sap.cap${endpoint.path}`
           }
         }
       }
@@ -141,7 +143,7 @@ module.exports = class APPService extends cds.ApplicationService {
       const dns = await cds.connect.to('sap.cap.dns')
       const { A } = dns.entities
 
-      const ownip = await dns.run(SELECT(A).where([{ ref: ['name'] }, '=', { val: 'sap.cap' }]))
+      const ownip = await dns.run(SELECT(A).where([{ ref: ['name'] }, '=', { val: 'dev.sap.cap' }]))
       await dns.run(INSERT(ownip.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(A))
 
       app.status = 'failed'
@@ -213,7 +215,7 @@ Object.defineProperty(cds.service, 'providers', {
 const _with = cds._with
 cds._with = function (context) {
   // context = context.context || context
-  const app = context.http?.req?.host.slice(0, -8)
+  const app = context.http?.req?.host.slice(0, -12)
   const apps = cds.services['sap.cap.app']?.apps
   if (apps?.[app]) {
     // Object.defineProperty(landingPage, 'html', htmlGetter)
