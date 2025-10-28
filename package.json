@@ -23,7 +23,7 @@
   "scripts": {
     "start": "cds-serve",
     "debug": "node --inspect=0.0.0.0:9229 ./node_modules/.bin/cds-serve",
-    "docker": "npm run dns:on && docker compose up && npm run dns:off",
+    "docker": "docker compose watch",
     "test": "cds-test",
     "dns:on": "./srv/dns/on.sh",
     "dns:off": "./srv/dns/off.sh",
@@ -36,6 +36,9 @@
     "capire/*"
   ],
   "cds": {
+    "server": {
+      "index": true
+    },
     "log": {
       "format": "plain",
       "user": true

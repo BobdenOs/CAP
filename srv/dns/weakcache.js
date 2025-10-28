@@ -14,20 +14,20 @@ class WeakCache {
   }
 
   set(key, value) {
-    const timeout = Date.now() + value.ttl * 1000;
+    const timeout = Date.now() + (value?.ttl || 3600) * 1000;
 
     key = key + "";
     const pointer = this.keys[key];
     if (pointer) {
       this.timeouts[key] = Math.min(this.timeouts[key], timeout);
-      this.weak.get(pointer).push(value);
+      if (value) this.weak.get(pointer).push(value);
       return;
     }
 
     const k = { key };
     this.keys[key] = k;
     this.timeouts[key] = timeout;
-    this.weak.set(k, [value]);
+    this.weak.set(k, value ? [value] : []);
   }
 
   delete(key) {

@@ -9,7 +9,24 @@
       "command": "npm run docker",
       "request": "launch",
       "type": "node-terminal",
-      "autoAttachChildProcesses": false
+      "autoAttachChildProcesses": false,
+      "presentation": {
+        "hidden": true,
+      }
+    },
+    {
+      "name": "Attach Node",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "address": "localhost",
+      "restart": true,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/home/node/app",
+      "skipFiles": [],
+      "presentation": {
+        "hidden": true,
+      }
     },
     {
       "name": "Attach cap",
@@ -17,10 +34,10 @@
       "request": "attach",
       "port": 9000,
       "address": "localhost",
-      "restart": false,
+      "restart": true,
       "localRoot": "${workspaceFolder}",
       "remoteRoot": "/home/node/app",
-      "skipFiles": [      ],
+      "skipFiles": [],
       "presentation": {
         "hidden": true,
       }
@@ -31,26 +48,29 @@
       "request": "attach",
       "port": 9001,
       "address": "localhost",
-      "restart": false,
+      "restart": true,
       "localRoot": "${workspaceFolder}",
       "remoteRoot": "/home/node/app",
-      "skipFiles": [
-      ],
+      "skipFiles": [],
       "presentation": {
         "hidden": true,
       }
     },
     {
-      "name": "Attach dev.sap.cap",
-      "type": "node",
-      "request": "attach",
-      "port": 9002,
-      "address": "localhost",
-      "restart": false,
-      "localRoot": "${workspaceFolder}",
-      "remoteRoot": "/home/node/app",
-      "skipFiles": [
-      ],
+      "name": "Launch dev.sap.cap",
+      "command": "sudo -E $(which node) $(pwd)/node_modules/.bin/cds-serve",
+      "request": "launch",
+      "type": "node-terminal",
+      "env": {
+        "PORT": "443",
+        "HOST": "172.28.218.112",
+        "HOST6": "fd14:c9c1:a1a7:1::aaaa",
+        "NODE_EXTRA_CA_CERTS": "${workspaceFolder}/ssl/ca/ca.crt",
+        "CF_INSTANCE_CERT": "${workspaceFolder}/ssl/servers/dev.sap.cap.crt",
+        "CF_INSTANCE_KEY": "${workspaceFolder}/ssl/servers/dev.sap.cap.key",
+        "FS_MOUNT": "${workspaceFolder}/storage"
+      },
+      "autoAttachChildProcesses": false,
       "presentation": {
         "hidden": true,
       }
@@ -58,12 +78,12 @@
   ],
   "compounds": [
     {
-      "name": "Attach",
+      "name": "Launch",
       "configurations": [
         "Launch Docker",
         "Attach cap",
         "Attach sap.cap",
-        "Attach dev.sap.cap"
+        "Launch dev.sap.cap"
       ]
     }
   ]

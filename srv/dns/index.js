@@ -2,10 +2,9 @@ const cds = require("@sap/cds");
 const LOG = cds.log('dns')
 const cqn4sql = require("@cap-js/db-service/lib/cqn4sql");
 
-const crypto = require('node:crypto');
-
 const dns = require("node:dns");
 const dgram = require("node:dgram");
+const tls = require('node:tls')
 
 const WeakCache = require('./weakcache')
 const Message = require('./message');
@@ -24,6 +23,8 @@ module.exports = class DNSService extends cds.ApplicationService {
     this._cache = {
       1: new WeakCache(), // A
       5: new WeakCache(), // CNAME
+      12: new WeakCache(), // PTR
+      16: new WeakCache(), // TXT
       28: new WeakCache(), // AAAA
       65: new WeakCache(), // HTTPS
     };
@@ -31,20 +32,13 @@ module.exports = class DNSService extends cds.ApplicationService {
     this.on(["SELECT"], this.onSELECT);
     this.on(["INSERT"], this.onINSERT);
 
-    const cert = new crypto.X509Certificate(await cds.utils.fs.promises.readFile(process.env.CF_INSTANCE_CERT))
-    const names = cert.subjectAltName
-      .split(',')
-      .map(p => /^ *DNS:([^*]*)/.exec(p)?.[1])
-      .filter(a => a)
+    await this.listen(53, '172.28.208.3')
 
-    this._names = names
-    await Promise.all([
-      this.run(INSERT(names.map(name => ({ name, url: '127.0.0.1' }))).into('A')),
-      this.run(INSERT(names.map(name => ({ name, url: '::1' }))).into('AAAA')),
-    ])
-    await this.listen(5353)
-
-    this.domains().catch(err => { LOG?.(err.message) })
+    this.domains().then((errors) => {
+      errors.forEach(err => {
+        if (err instanceof Error) LOG?.(err)
+      })
+    })
   }
 
   async listen(port) {
@@ -56,7 +50,7 @@ module.exports = class DNSService extends cds.ApplicationService {
     // Start UDP server
     const server = (this.server = dgram.createSocket({ type: "udp4", signal }));
 
-    server.on("message", this.handler.bind(this));
+    server.on("message", this.handler.bind(this, server));
     server.on('error', err => {
       console.log(err)
       this.server = undefined
@@ -67,31 +61,49 @@ module.exports = class DNSService extends cds.ApplicationService {
       console.log(`dns listening ${address.address}:${address.port}`);
     })
 
-    server.bind(port)
+    server.bind(port, process.env.HOST || '0.0.0.0')
+    if (process.env.HOST6) {
+      const server = dgram.createSocket({ type: "udp6", ipv6Only: true, signal });
+
+      server.on("message", this.handler.bind(this, server));
+      server.on('error', err => {
+        console.log(err)
+        this.server = undefined
+        this._controller.abort()
+      })
+      server.on('listening', () => {
+        const address = server.address();
+        console.log(`dns listening ${address.address}:${address.port}`);
+      })
+      server.bind(port, process.env.HOST6)
+    }
 
     // Uses localhost for all dns calls (except lookup)
     dns.setServers([`127.0.0.1:${port}`]);
     // Make lookup query the dns logic directly
     const orgLookup = dns.lookup;
     dns.lookup = async function (host, options, cb) {
+      const o = typeof options === 'object' ? options : {}
+      if (typeof options === 'number') o.family = options
+      if (typeof options === 'string') o.family = options === 'IPv4' ? 4 : options === 'IPv6' ? 6 : 0
       // TCP and UDP also call lookup internally
       // Test if url is an ip address
       let valid = !!urlToIp(host, 1);
       let type = 4;
-      if (valid && (typeof options !== "number" || type === options))
-        return cb(null, host, type);
+      if (valid && (o.family === 0 || type === o.family))
+        return cb(null, o.all ? [host] : host, type);
 
       valid = !!urlToIp(host, 28);
       type = 6;
-      if (valid && (typeof options !== "number" || type === options))
-        return cb(null, host, type);
+      if (valid && (o.family === 0 || type === o.family))
+        return cb(null, o.all ? [host] : host, type);
 
       // Resolve host name
       const msg = Message.from({
         type: options === 4 ? 1 : options === 6 ? 28 : 255,
         name: host,
       });
-      const result = new Message(await this.resolve(msg.buffer));
+      const result = new Message(await this.resolve(msg.buffer).catch(() => { }));
       const answers = result.answers;
 
       // If not found use default lookup to keep errors consistent
@@ -99,14 +111,32 @@ module.exports = class DNSService extends cds.ApplicationService {
         return orgLookup(host, options, cb);
       }
 
-      const answer = answers[0];
-      return cb(null, ipToUrl(answer.data), answer.type === 1 ? 4 : 6);
+      return o.all
+        ? cb(null, answers.map(a => ({ address: ipToUrl(a.data), family: a.type === 1 ? 4 : 6 })))
+        : cb(null, ipToUrl(answers[0].data), answers[0].type === 1 ? 4 : 6)
     }.bind(this);
   }
 
   async domains() {
+    await Promise.all([
+      this.run(cds.ql.INSERT(
+        cds.env.ssl.A
+          .map(ip => cds.env.ssl.names.map(name => ({ ...ip, name })))
+          .flat()
+      ).into(this.entities.A))
+        .catch(err => { debugger }),
+      this.run(cds.ql.INSERT(
+        cds.env.ssl.AAAA
+          .map(ip => cds.env.ssl.names.map(name => ({ ...ip, name })))
+          .flat()
+      ).into(this.entities.AAAA))
+        .catch(err => {
+          debugger
+        }),
+    ])
+
     const domains = {}
-    for (const name of this._names) {
+    for (const name of cds.env.ssl.names) {
       const split = name.split('.')
       while (split.length) {
         domains[split.join('.')] = true
@@ -117,10 +147,10 @@ module.exports = class DNSService extends cds.ApplicationService {
     const proms = []
     for (const domain in domains) proms.push(this.synchronize(domain))
 
-    await Promise.all(proms)
+    return Promise.allSettled(proms)
   }
 
-  async synchronize(domain) {
+  async synchronize(domain, retry = true) {
     try {
       const remote = await cds.connect.to(this.name, {
         kind: 'odata',
@@ -133,24 +163,25 @@ module.exports = class DNSService extends cds.ApplicationService {
         }
       })
 
-      const inserts = this._names.map(name => [
-        INSERT({ name, url: '127.0.0.1' }).into('A'),
-        INSERT({ name, url: '::1' }).into('AAAA'),
-      ])
+      const inserts = cds.env.ssl.names.map(name => [
+        ...cds.env.ssl.A
+          .map(ip => cds.ql.INSERT({ ...ip, name }).into(this.entities.A)),
+        ...cds.env.ssl.AAAA
+          .map(ip => cds.ql.INSERT({ ...ip, name }).into(this.entities.AAAA)),
+      ]).flat()
 
-      await Promise.all(inserts.map(q => remote.run(q)))
+      await Promise.allSettled(inserts.map(q => remote.run(q)))
 
       const [A, AAAA] = await Promise.all([
         remote.run(cds.ql.SELECT.from(this.entities.A)),
         remote.run(cds.ql.SELECT.from(this.entities.AAAA)),
       ])
 
-      await this.run(INSERT(A).into('A'))
-      await this.run(INSERT(AAAA).into('AAAA'))
-    } catch (err) { // If the current host doesn't exist the server becomes the dns provider
-      if (err.reason.code === 'ECONNREFUSED') return this.synchronize(domain)
-      // TODO: find why at some point the ip becomes undefined
-      // debugger
+      await this.run(cds.ql.INSERT(A).into('A'))
+      await this.run(cds.ql.INSERT(AAAA).into('AAAA'))
+    } catch (err) {
+      if (err.reason.code === 'ECONNREFUSED' && retry) return this.synchronize(domain, false)
+      throw err
     }
   }
 
@@ -162,14 +193,16 @@ module.exports = class DNSService extends cds.ApplicationService {
     });
   }
 
-  async handler(msg, remote) {
+  async handler(server, msg, remote) {
     const res = await this.resolve(msg);
-    return this.respond(res, remote);
+    return this.respond(server, res, remote);
   }
 
   async resolve(msg) {
+    const s = performance.now()
     const req = this.parse(msg);
-    LOG?.(req.questions.map(q => q.type + ' ' + q.name.map(n => n + '')).join('\n'))
+
+    LOG?.(req.questions.map(q => `${q.type}`.padStart(3, ' ') + ' ' + `${q.name.map(n => n + '').join('.')}`.padEnd(40, ' ')).join('\n'))
 
     let results = [];
     let authorities = [];
@@ -202,6 +235,16 @@ module.exports = class DNSService extends cds.ApplicationService {
         this._cache[answer.type]?.set(answer.name, answer);
         results.push(answer);
       }
+
+      // Ensure empty cache
+      for (const question of req.questions) {
+        if (question.type === 255) {
+          this._cache[1]?.set(question.name);
+          this._cache[28]?.set(question.name);
+        } else {
+          this._cache[question.type]?.set(question.name);
+        }
+      }
     }
 
     results = results.flat();
@@ -230,16 +273,17 @@ module.exports = class DNSService extends cds.ApplicationService {
     }
     copy.writeUInt16BE(authorities.length, 8);
 
+    LOG?.(req.questions.map(q => `${q.type}`.padStart(3, ' ') + ' ' + `${q.name.map(n => n + '').join('.')}`.padEnd(40, ' ')).join('\n'), `(${results.length}, ${(performance.now() - s) >>> 0}ms)`)
+
     return copy;
   }
 
   async forward(msg) {
     const errors = [];
-    if (this._fallback.length === 0) return this.parse(msg)
+    const socket = dgram.createSocket({ type: "udp4" });
     for (const server of this._fallback) {
       try {
         return await new Promise((resolve, reject) => {
-          const socket = dgram.createSocket({ type: "udp4" });
           socket.on("error", reject);
           socket.on("message", (msg) => resolve(this.parse(msg)));
           socket.send(msg, 0, msg.length, server.split(":")[1] || 53, server);
@@ -248,12 +292,13 @@ module.exports = class DNSService extends cds.ApplicationService {
         errors.push(err);
       }
     }
-    throw new Error(`No DNS server available: ${errors.join("\n")}`);
+    console.error(new Error(`No DNS server available: ${errors.join("\n")}`))
+    return this.parse(msg)
   }
 
-  async respond(result, remote) {
+  async respond(server, result, remote) {
     const buffer = result;
-    this.server.sendto(
+    server.sendto(
       buffer,
       0,
       buffer.byteLength,
@@ -295,6 +340,36 @@ module.exports = class DNSService extends cds.ApplicationService {
       }
       return totalCache;
     }
+  }
+
+  ping(name, ip, req) {
+    return new Promise(async (resolve, reject) => {
+      const socket = tls.connect({
+        host: name, // Provide host for certificate validation
+        lookup: (host, options, cb) => // Ensure that the ip to test is used by the connection
+          cb(null, [{ address: ipToUrl(ip), family: ip.length === 4 ? 4 : 6 }]),
+        rejectUnauthorized: true,
+        port: 443,
+        ca: cds.env.ssl.ca,
+        cert: cds.env.ssl.cert,
+        key: cds.env.ssl.key,
+      })
+      // As all parent domains have an wildcard it is important to double check for self references
+      const strictDNS = name.indexOf(req.user.id) < 1 || cds.env.ssl.names.includes(name)
+      if (strictDNS) {
+        socket.on('secureConnect', () => {
+          const cert = socket.getPeerCertificate()
+          if (cert.CN !== name && cert.subjectaltname.indexOf(`DNS:${name}`) < 0) return reject(new Error(`Invalid parent "${cert.CN}" for child "${name}"`))
+          resolve()
+        })
+      } else {
+        socket.on('connect', () => resolve())
+      }
+
+      socket.on('error', (err) => {
+        reject(err)
+      })
+    })
   }
 
   async onSELECT(req) {
@@ -358,7 +433,8 @@ module.exports = class DNSService extends cds.ApplicationService {
       if (http) {
         ip = urlToIp(http.req.client.remoteAddress, { IPv4: 1, IPv6: 28 }[http.req.client.remoteFamily])
         if (type === 1) {
-          if (ip?.length === 16 && ip.subarray(0, 12).compare(ipv4Namespace) === 0) ip = ip.subarray(12)
+          if (ip?.length === 16 && ip.subarray(0, 12).compare(ipv4Namespace) === 0) { ip = ip.subarray(12) }
+          else { ip = undefined }
         }
         if (type === 28) {
           if (ip?.length !== 16) ip = undefined
@@ -376,8 +452,19 @@ module.exports = class DNSService extends cds.ApplicationService {
         errors.push(new Error(`Missing ip for "${name}"`));
         continue;
       }
-      if (http) {
-        if ((type === 1 && ip[0] === 127) || (type === 28 && ip.compare(ipv6Loopback) === 0)) errors.push(new Error(`Invalid loopback ip for "${name}"`));
+
+      if ((type === 1 && ip[0] === 127) || (type === 28 && ip.compare(ipv6Loopback) === 0)) {
+        errors.push(new Error(`Invalid loopback ip for "${name}"`))
+        continue
+      }
+
+      try {
+        await this.ping(name, ip, req)
+      } catch (cause) {
+        if (!(cause.code === 'ECONNREFUSED' && ipToUrl(ip) === ipToUrl(urlToIp(type === 1 ? process.env.HOST : process.env.HOST6, type)))) {
+          errors.push(new Error(`Unreachable ip "${ipToUrl(ip)}" for "${name}"`, { cause }))
+          continue
+        }
       }
 
       answers.push({
@@ -389,8 +476,7 @@ module.exports = class DNSService extends cds.ApplicationService {
         data: ip,
       });
     }
-    if (errors.length)
-      throw new Error("Errors occured: " + errors.join("\n\n"));
+    if (errors.length) for (const error of errors) req[answers.length === 0 ? 'error' : 'warn'](400, error)
 
     const msg = Message.from();
     msg.answers = answers;
@@ -399,7 +485,7 @@ module.exports = class DNSService extends cds.ApplicationService {
     for (const answer of parsedAnswers) {
       const store = (this._store[answer.type][answer.name] =
         this._store[answer.type][answer.name] || []);
-      store.unshift(answer);
+      if (store.findIndex(a => a.data.compare(answer.data) === 0) < 0) store.unshift(answer)
     }
 
     return answers.length;
@@ -432,11 +518,12 @@ const urlToIp = (url, type) => {
     if (str.length !== 32) return;
     return Buffer.from(str, "hex");
   };
-
+  if (!url) return
   return type === 1 ? ipv4(url) : type === 28 ? ipv6(url) : url;
 };
 
 const ipToUrl = (ip) => {
+  if (!ip) return
   return ip.byteLength === 4
     ? [...ip].join(".")
     : ip

@@ -12,7 +12,7 @@ module.exports = class FSService extends cds.ApplicationService {
     this._store = {
       index: {},
     };
-    this._root = `${process.cwd()}/storage/`
+    this._root = `${process.env.FS_MOUNT || process.cwd()}/storage/`
     this.db = (await cds.connect.to('sap.cap.db')).bind(this)
 
     this.on(["SELECT"], this.onSELECT)
