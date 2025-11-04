@@ -5,6 +5,8 @@ const {
   scalar: unknown,
   any,
 
+  array,
+
   UUID, Boolean, String,
   Integer, UInt8, Int16, Int32, Int64,
 
@@ -16,6 +18,8 @@ const {
 const types = {
   unknown, // Requires the other hand of an operation to infer the type
   any,
+
+  array,
 
   UUID, Boolean, String,
   Integer, UInt8, Int16, Int32, Int64,
@@ -29,6 +33,7 @@ for (const type in types) {
   types[type] = types[type].constructor
 }
 
+/** @type {types} */
 const static = {}
 for (const type in types) {
   static[type] = class staticType extends types[type] {

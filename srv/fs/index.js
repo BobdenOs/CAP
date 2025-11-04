@@ -46,46 +46,25 @@ module.exports = class FSService extends cds.ApplicationService {
       // Cyclic dependency breaker: enforcing local copy of chunk location index
       if (this.owner.name === 'sap.cap.db') {
         q = cqn4sql(q, this.model)
-        const root_file = q.SELECT.where.find(val => /sap.cap.fs.chunks\//.test(val.val))
+        const root_file = q.SELECT.where.find(val => /sap.cap.fs.chunks\//.test(val.val) || (val.list && !val.list?.find(val => !/sap.cap.fs.chunks\//.test(val.val))))
         if (root_file) {
-          // TODO: keep local copies of this data for node instances
-          const internalLocations = [{
-            file_owner: 'sap.cap.db',
-            file_name: 'sap.cap.fs.chunks/file_name.col',
-            index: 0,
-            domain: 'cap',
-            data: Readable.from(Buffer.alloc(0), { objectMode: false }),
-            hosts: null,
-            size: 0n,
-            local: true,
-          }, {
-            file_owner: 'sap.cap.db',
-            file_name: 'sap.cap.fs.chunks/.tbl',
-            index: 0,
-            domain: 'cap',
-            data: Readable.from(Buffer.alloc(0), { objectMode: false }),
-            hosts: null,
-            size: 0n,
-            local: true,
-          }]
-
-          const fullFileName = `${this._root}${root_file.val}`
-          const fullDirName = cds.utils.path.dirname(fullFileName)
-          const localFileName = cds.utils.path.relative(fullDirName, fullFileName)
-          const localFileNameRegex = new RegExp(localFileName.replaceAll('.', '\\.') + '#(\d*)')
+          const localFileNameRegex = new RegExp(root_file.val
+            ? root_file.val.replace('sap.cap.fs.chunks/', '').replaceAll('.', '\\.') + '#(\\d*)'
+            : '(?:' + root_file.list.map(v => v.val.replace('sap.cap.fs.chunks/', '').replaceAll('.', '\\.')).join('|') + ')#(\\d*)'
+          )
           try {
-            const files = await cds.utils.fs.promises.readdir(fullDirName)
+            const files = await cds.utils.fs.promises.readdir(this._root + 'sap.cap.fs.chunks/')
 
             const proms = []
             for (const file of files) {
               const match = localFileNameRegex.exec(file)
               if (!match) continue
               proms.push((async () => {
-                const fileName = `${fullDirName}/${file}`
+                const fileName = `${this._root}sap.cap.fs.chunks/${file}`
                 const stat = await cds.utils.fs.promises.stat(fileName, { bigint: true })
                 return {
                   file_owner: 'sap.cap.db',
-                  file_name: root_file,
+                  file_name: `sap.cap.fs.chunks/${file}`,
                   index: Number.parseInt(match[1]),
                   domain: 'cap',
                   data: cds.utils.fs.createReadStream(fileName),
@@ -104,9 +83,12 @@ module.exports = class FSService extends cds.ApplicationService {
         }
       }
 
+      if (q.elements.data) q.columns`local,file_name,index`
       const ret = await this.db.run(q.where`file_owner=${this.owner.name}`)
 
-      for (const row of ret) {
+      if (!Array.isArray(ret)) {
+        if (ret.local) ret.data = cds.utils.fs.createReadStream(`${this._root}${ret.file_name}#${ret.index}`)
+      } else for (const row of ret) {
         if (row.local) row.data = cds.utils.fs.createReadStream(`${this._root}${row.file_name}#${row.index}`)
       }
 
@@ -120,6 +102,7 @@ module.exports = class FSService extends cds.ApplicationService {
     const q = req.query
     const { entries } = q.INSERT || q.UPSERT
     const flags = q.UPSERT ? 'a' : 'w'
+    let internal = false
 
     const proms = []
     const chunks = []
@@ -153,27 +136,34 @@ module.exports = class FSService extends cds.ApplicationService {
       }
       delete entry.chunks
     }
+
     await Promise.all(proms)
+    if (internal === 'chunks') { return { changes: entries.length } }
     await this.db.upsert(chunks).into(this.entities.chunks)
+    if (internal === 'files') { return { changes: entries.length } }
     const changes = await this.db.run(q)
 
     return { changes: entries.length }
 
     function add_chunk(filename, chunk) {
+      if (chunk.file_owner === 'sap.cap.db' && /sap.cap.fs.chunks\//.test(chunk.file_name)) { internal = 'chunks' }
+      if (chunk.file_owner === 'sap.cap.db' && /sap.cap.fs.files\//.test(chunk.file_name)) { internal = 'files' }
       const { data } = chunk
       delete chunk.data // Remove blob data from database entry (cyclic)
       chunks.push(chunk)
       const file = cds.utils.fs.createWriteStream(filename, { flags })
-      chunk.size = 0
-      proms.push(pipeline(
-        data,
-        async function* (s) {
-          for await (const c of s) {
-            chunk.size += c.byteLength || c.length
-            yield c
-          }
-        },
-        file))
+      proms.push(cds.utils.fs.promises.stat(filename).catch(() => ({ size: 0 })).then(stat => {
+        chunk.size = stat.size
+        return pipeline(
+          data,
+          async function* (s) {
+            for await (const c of s) {
+              chunk.size += c.byteLength || c.length
+              yield c
+            }
+          },
+          file)
+      }))
     }
   }
 

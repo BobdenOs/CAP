@@ -284,6 +284,7 @@ module.exports = class DNSService extends cds.ApplicationService {
     for (const server of this._fallback) {
       try {
         return await new Promise((resolve, reject) => {
+          setTimeout(() => reject(new Error(`DNS forward timeout "${server}"`)), 1000)
           socket.on("error", reject);
           socket.on("message", (msg) => resolve(this.parse(msg)));
           socket.send(msg, 0, msg.length, server.split(":")[1] || 53, server);
@@ -292,7 +293,7 @@ module.exports = class DNSService extends cds.ApplicationService {
         errors.push(err);
       }
     }
-    console.error(new Error(`No DNS server available: ${errors.join("\n")}`))
+    LOG?.(new Error(`No DNS server available: ${errors.join("\n")}`))
     return this.parse(msg)
   }
 

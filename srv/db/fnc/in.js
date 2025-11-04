@@ -1,7 +1,7 @@
 const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
 
 const names = []
-const operators = ['=']
+const operators = ['in', 'IN']
 
 const impl = {}
 impl.async = {}
@@ -21,22 +21,21 @@ impl.async.ref.static = async function* (ref, static) {
   throw new Error('TODO: implement')
 }
 
-impl.async.ref.static.args = [ref, static.unknown]
+impl.async.ref.static.args = [ref, static.array]
 impl.async.ref.static.ret = rowsAsync
 
 // -- sync impl
 impl.sync.ref.static = async function (ref, static) {
   ref = ref()
-  static = static()
-
-  // Align data to be searched for with stored data format
-  if (!Buffer.isBuffer(static)) static = Buffer.from(JSON.stringify(static))
-
   const store = this.store(ref.parent)
 
+  // Align data to be searched for with stored data format
+  let curData
   const matches = []
   await store.read_col(ref.name, (row) => {
-    if (static.compare(row.subarray(32)) !== 0) {
+    if (!curData) curData = static().map(data => Buffer.isBuffer(data) ? data : Buffer.from(JSON.stringify(data)))
+    const rowData = row.subarray(32)
+    if (curData.findIndex(data => data.compare(rowData) === 0) < 0) {
       const rowID = row.subarray(0, 16)
       const index = matches.findIndex(r => rowID.compare(r.subarray(16)) === 0)
       // Remove old row data that no longer matches
@@ -45,10 +44,11 @@ impl.sync.ref.static = async function (ref, static) {
     }
     matches.push(row)
   })
+
   return matches
 }
 
-impl.sync.ref.static.args = [ref, static.unknown]
+impl.sync.ref.static.args = [ref, static.array]
 impl.sync.ref.static.ret = rows
 
 
@@ -57,7 +57,7 @@ impl.async.static.ref = function (static, ref) {
   return impl.async.ref.static(ref, static)
 }
 
-impl.async.static.ref.args = [static.unknown, ref]
+impl.async.static.ref.args = [static.array, ref]
 impl.async.static.ref.ret = rowsAsync
 
 // -- sync aliases --
@@ -65,7 +65,7 @@ impl.sync.static.ref = function (static, ref) {
   return impl.sync.ref.static(ref, static)
 }
 
-impl.sync.static.ref.args = [static.unknown, ref]
+impl.sync.static.ref.args = [static.array, ref]
 impl.sync.static.ref.ret = rows
 
 

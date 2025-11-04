@@ -70,9 +70,13 @@
         "CF_INSTANCE_KEY": "${workspaceFolder}/ssl/servers/dev.sap.cap.key",
         "FS_MOUNT": "${workspaceFolder}/storage"
       },
+      "skipFiles": [
+        "<node_internals>/**/*.js",
+        "${workspaceFolder}/node_modules/**/*.js"
+      ],
       "autoAttachChildProcesses": false,
       "presentation": {
-        "hidden": true,
+        "hidden": false,
       }
     },
   ],

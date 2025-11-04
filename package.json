@@ -41,11 +41,17 @@
     },
     "log": {
       "format": "plain",
-      "user": true
+      "user": true,
+      "levels": {
+        "dns": "error",
+        "rest": "info",
+        "odata": "error",
+        "remote": "error"
+      }
     },
     "requires": {
       "db": {
-        "kind": "sqlite"
+        "impl": "srv/db/index.js"
       },
       "auth": {
         "impl": "srv/sec/auth.js"

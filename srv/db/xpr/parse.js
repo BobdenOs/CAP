@@ -1,7 +1,119 @@
+const { PassThrough } = require('node:stream')
+
 const { operators, functions } = require('../fnc/index.js')
 const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const source = require('./src.js')
+const column = require('./col.js')
 
-const parse = function (query, xpr, ret = [rows]) {
+const parse = function (query, xpr, ret = []) {
+  // Parse whole query definition
+  if (!xpr) {
+
+    const one = query.SELECT?.one
+    if (query.SELECT) {
+      // Materialize requested columns
+      if (!query.SELECT.columns) query.SELECT.columns = Object.keys(query.elements).map(col => ({ ref: [col] }))
+      else {
+        const wildcard = query.SELECT.columns.indexOf('*')
+        if (wildcard > -1) query.SELECT.columns.splice(wildcard, 1, ...Object.keys(query.elements).filter(col => !query.SELECT.columns.find(c => c !== '*' && column_name(c) === col)).map(col => ({ ref: [col] })))
+      }
+    }
+
+    const kind = query.kind
+    const from = query[kind].from || query[kind].entity
+    const where = query[kind].where ? { xpr: [{ xpr: query[kind].where }, 'and', from] } : from
+    const whereShared = this.parse(query, [where], [static.unknown, rows])
+
+    const columns = query.SELECT?.columns || []
+    if (kind === 'UPDATE') {
+      for (const col in query.UPDATE.data) columns.push({ val: query.UPDATE.data[col], as: col })
+      for (const col in query.UPDATE.with) columns.push({ ...query.UPDATE.with[col], as: col })
+    }
+    const cols = columns.map(col => {
+      let fn = this.parse(query, [col, '<<', whereShared], ret.length ? ret : [static.unknown, rows])
+      if (typeof fn === 'error') fn = this.parse(query, [col, '<<', where], ret.length ? ret : [static.unknown, rows])
+      return fn
+    })
+
+    return async () => {
+      const rowss = await Promise.all(cols.map(col => col()))
+
+      if (kind === 'UPDATE') {
+        const fs = await this.fs
+
+        const colFiles = columns.map((col) => {
+          const name = column_name(col)
+          const fileName = `${query._target.name}/${name}.col`
+          const file = new PassThrough()
+          return { name, file, fileName }
+        })
+
+        const files = colFiles.map(col => ({
+          name: col.fileName,
+          data: col.file,
+        }))
+
+        const write = fs.upsert(files).into(fs.entities.files)
+
+        let column = 0
+        for (const rows of rowss) {
+          const { file } = colFiles[column]
+          column++
+
+          const IDs = []
+          for (const row of rows) {
+            const rowID = row.subarray(0, 16)
+            const index = IDs.findIndex(ID => ID.compare(rowID) === 0)
+            if (index > -1) continue
+            IDs.push(rowID)
+            file.write(row)
+          }
+          file.end()
+        }
+
+        return write
+      }
+
+      const IDs = []
+      const results = []
+      let column = 0
+      for (const rows of rowss) {
+        const columnName = column_name(columns[column])
+        column++
+
+        for (const row of rows) {
+          const rowID = row.subarray(0, 16)
+          const index = IDs.findIndex(ID => ID.compare(rowID) === 0)
+          const value = JSON.parse(row.subarray(32))
+          if (index > -1) results[index][columnName] = value
+          else {
+            IDs.push(rowID)
+            results.push({ [columnName]: value })
+          }
+        }
+      }
+      if (one) return results[0]
+      return results
+    }
+
+
+    return
+
+    // return async () => {
+    //   try {
+    //     const rows = await from()
+    //     const cols = query.SELECT.columns.map(col => this.parse(query, [col], []))
+
+    //     // TODO: use parse to provide column expression calculations
+    //     // const store = this.store(query._target)
+    //     // return store.read(rows)
+    //   } catch (err) {
+    //     debugger
+    //     process.exit(1)
+    //   }
+    // }
+  }
+
   // Find lowest operator
   let operatorIndex
   let operatorPriority
@@ -58,7 +170,12 @@ const parse = function (query, xpr, ret = [rows]) {
   // Handle native cqn types
   if (xpr.length === 1) {
     const expr = xpr[0]
-    if (!expr || typeof expr !== 'object') cds.error`not supported: ${expr}`
+    if (typeof expr === 'function' && expr.ret) {
+      if (ret.includes(expr.ret)) return expr
+      debugger
+    }
+    if (!expr || typeof expr !== 'object') { debugger; cds.error`not supported: ${expr}` }
+
     if ('xpr' in expr) return this.parse(query, expr.xpr, ret)
     if ('val' in expr) {
       const getter = () => expr.val
@@ -66,22 +183,90 @@ const parse = function (query, xpr, ret = [rows]) {
       getter.ret = static.unknown
       return getter
     }
-    if ('ref' in expr) {
-      const getter = () => query.sources[expr.ref[0]].definition.elements[expr.ref[1]]
+    if ('list' in expr) {
+      // TODO: add proper list impl
+      const getter = () => expr.list.map(val => val.val)
       getter.args = []
-      getter.ret = ref
+      getter.ret = static.array
       return getter
+    }
+    if ('ref' in expr) {
+      let where, col
+      let entity = query._target
+      let i = 0
+      for (const step of expr.ref) {
+        const id = step.id || step
+        i++
+
+        // Apply all infix filters for path expressions
+        if (step.where) {
+          if (where) where = [step.where, 'and', { xpr: ['exists', cds.ql.SELECT({ val: 1 }).from(entity).where(where)] }]
+          else where = step.where
+        }
+
+        // References that start with an entity name (e.g. q.SELECT.from)
+        if (i === 1 && this.model.definitions[id]) {
+          entity = this.model.definitions[id]
+        } else if (i === 1 && query._subject.as === id) {
+          entity = query._target
+        } else if (i < expr.ref.length) {
+          col = entity.elements[id]
+          entity = col._target
+        } else {
+          if (col?.foreignKeys?.[id]) {
+            col = col.parent.elements[col.name + '_' + id]
+          } else {
+            col = entity.elements[id]
+          }
+        }
+      }
+
+      if (!col) {
+        // Apply inline where as normal expression
+        if (where) return this.parse(query, [{ xpr: where }, 'and', { ref: [entity.name] }], ret)
+        const apis = source.apis.filter(fn => ret.includes(fn.ret))
+        if (apis.length === 0) return new cds.error(`not supported: table with return type: ${ret.map(r => r.name)}`)
+        return this.wrap(apis[0], entity, where) // 0 should be the most efficient available implementations
+      }
+
+      if (entity.query) {
+        if (entity.query.SELECT.columns) {
+          const def = entity.query.SELECT.columns.find(col => col !== '*' && column_name(col) === col.name)
+          if (def) {
+            debugger
+          }
+        }
+        return this.parse(query, [{ ref: [entity.query._target.name, col.name] }], ret)
+      }
+
+      const apis = column.apis.filter(fn => ret.includes(fn.ret))
+      if (apis.length === 0) return new cds.error(`not supported: column with return type: ${ret.map(r => r.name)}`)
+      return this.wrap(apis[0], col, where) // 0 should be the most efficient available implementations
     }
     debugger
   }
   debugger
 }
 
+function column_name(col) {
+  return (typeof col.as === 'string' && col.as) || ('val' in col && col.val + '') || col.func || col.ref.at(-1)
+}
+
 function wrap(fn, arg0, arg1) {
-  const ret = () => fn.call(this, arg0?.(), arg1?.())
+  // const ret = () => {
+  //   this._depth ??= 0
+  //   console.log(`${''.padStart(this._depth, ' ')}${fn._name}`)
+  //   this._depth += 2
+  //   const ret = fn.call(this, arg0, arg1)
+  //   if (ret.then === 'function') ret.then(() => { this._depth -= 2 })
+  //   else this._depth -= 2
+  //   return ret
+  // }
+  const ret = () => fn.call(this, arg0, arg1)
   ret.name = fn.name
   ret.ret = fn.ret
   ret.args = fn.args
+  ret.fn = fn
   return ret
 }
 

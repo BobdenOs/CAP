@@ -72,9 +72,11 @@ module.exports = class APPService extends cds.ApplicationService {
       // Stream archive into tar to be unpacked
       const tar = cds.utils.tar.xz(toTar).to(appFolder)
       await Promise.all([tar, update])
+
+      await new Promise((resolve) => setTimeout(resolve, 10000))
     } else {
       const fs = await this.fs
-      const chunks = await fs.run(cds.ql.SELECT('data').from(fs.entities.chunks, { 'file.name': application }))
+      const chunks = await fs.run(cds.ql.SELECT('data').from(fs.entities.chunks).where`file.name = ${application}`)
       if (chunks.length !== 1) {
         app.status = 'failed'
         return { changes: 1 }
@@ -105,10 +107,10 @@ module.exports = class APPService extends cds.ApplicationService {
       const csn = await cds.load(`${appFolder}/*`)
       const model = cds.compile.for.nodejs(csn)
 
-      cds.db = { __proto__: rootDB, model }
+      cds.db = rootDB.bind({ model })
       // cds.app = undefined
       cds.model = model
-      cds.services = {}
+      cds.services = { __proto__: rootServices }
       cds.service.providers = []
 
       // Serve app
