@@ -45,7 +45,7 @@
       "levels": {
         "dns": "error",
         "rest": "info",
-        "odata": "error",
+        "odata": "info",
         "remote": "error"
       }
     },

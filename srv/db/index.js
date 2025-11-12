@@ -20,11 +20,6 @@ module.exports = class DBService extends cds.ApplicationService {
     }
   }
 
-  run() {
-    // if (!this.owner) cds.error`sap.cap.fs requires the service to be bound to an owner`
-    return super.run(...arguments)
-  }
-
   _requires_resolving() { return false }
 
   disconnect() { }
@@ -56,7 +51,8 @@ module.exports = class DBService extends cds.ApplicationService {
   }
 
   async onINSERT(req) {
-    const q = cqn4sql(req.query, this.model)
+    let q
+    try { q = this.resolve(req.query) || req.query } catch { q = req.query }
     const kind = q.kind
     if (!q[kind].entries && q[kind].rows && q[kind].columns) {
       q[kind].entries = q[kind].rows.map(row => {

@@ -14,23 +14,18 @@ impl.sync.ref.rows = async function (ref, rows) {
   // if (rows.length === 0) return rows
   ref = ref()
   const store = this.store(ref.parent)
-  let rowIDs
-  rows = rows().then(rows => { rowIDs = rows.map(row => store.rowID(row)) })
-  const backlog = []
-  const matches = []
-  const handle = (row) => {
-    const rowID = store.rowID(row)
-    if (rowIDs.find(ID => ID.compare(rowID) === 0)) matches.push(row)
-  }
-  const onRow = (row) => {
-    if (!rowIDs) return backlog.push(row)
-    while (backlog.length) handle(backlog.shift())
-    handle(row)
-  }
+  
+  store.read_col(ref.name, () => {})
+  
+  let rowIDs = {}
+  rows = await rows()
+  for (const row of rows) rowIDs[store.rowID(row).toString('base64')] = true
 
-  await store.read_col(ref.name, onRow)
-  if (!rowIDs) await rows
-  while (backlog.length) handle(backlog.shift())
+  const matches = []
+  await store.read_col(ref.name, (row) => {
+    const rowID = store.rowID(row).toString('base64')
+    if (rowIDs[rowID]) matches.push(row)
+  })
   return matches
 }
 

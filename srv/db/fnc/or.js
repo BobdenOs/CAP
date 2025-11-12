@@ -1,0 +1,49 @@
+const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+
+const names = []
+const operators = ['or', 'OR']
+
+const impl = {}
+impl.sync = {}
+impl.sync.rows = {}
+impl.sync.rows.rows = {}
+impl.sync.rows.static = {}
+
+// -- sync impl
+impl.sync.rows.rows.rows = async function (a, b) {
+  [a, b] = await Promise.all([a(), b()])
+  // TODO: unique filter reduction
+  return [...a, ...b]
+}
+
+impl.sync.rows.rows.rows.args = [rows, rows]
+impl.sync.rows.rows.rows.ret = rows
+
+impl.sync.rows.rows.static = async function (a, b) {
+  if (!b()) return []
+  return a()
+}
+
+impl.sync.rows.rows.static.args = [rows, static.unknown]
+impl.sync.rows.rows.static.ret = rows
+
+impl.sync.rows.static.rows = async function (a, b) {
+  return impl.sync.rows.rows.static(b, a)
+}
+
+impl.sync.rows.static.rows.args = [static.unknown, rows]
+impl.sync.rows.static.rows.ret = rows
+
+
+// All implemented APIs for the function in order of preference
+const apis = [
+  // impl.sync.rows.rows.static,
+  // impl.sync.rows.static.rows,
+
+  impl.sync.rows.rows.rows,
+]
+
+module.exports.apis = apis
+module.exports.names = names
+module.exports.operators = operators
+module.exports.priority = 1

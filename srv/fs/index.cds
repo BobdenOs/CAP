@@ -2,7 +2,8 @@ namespace sap.cap;
 
 @(impl: 'srv/fs/index.js')
 service fs {
-  @(cds.persistence.skip)
+
+  @cache.ttl: '1m'
   entity files {
     key owner    : String(5000);
     key name     : String(5000);
@@ -14,12 +15,13 @@ service fs {
                      on chunks.file = $self;
   };
 
+  @cache.ttl: '1m'
   entity chunks {
     key file   : Association to one files;
     key index  : Integer;
         domain : String(5000);
 
-        @(Core.MediaType: dataType)
+        @(Core.MediaType: 'application/octet-stream')
         data   : LargeBinary;
         size   : Int64;
 

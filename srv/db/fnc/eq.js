@@ -37,10 +37,10 @@ impl.sync.ref.static = async function (ref, static) {
   const matches = []
   await store.read_col(ref.name, (row) => {
     if (static.compare(row.subarray(32)) !== 0) {
-      const rowID = row.subarray(0, 16)
-      const index = matches.findIndex(r => rowID.compare(r.subarray(16)) === 0)
+      // const rowID = row.subarray(0, 16)
+      // const index = matches.findIndex(r => rowID.compare(r.subarray(16)) === 0)
       // Remove old row data that no longer matches
-      if (index > -1 && store.timestamp(matches[index]) < store.timestamp(row)) matches.splice(index, 1)
+      // if (index > -1 && store.timestamp(matches[index]) < store.timestamp(row)) matches.splice(index, 1)
       return
     }
     matches.push(row)

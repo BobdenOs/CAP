@@ -2,6 +2,7 @@ const { PassThrough } = require('stream')
 const { hash } = require('node:crypto')
 
 const cds = require('@sap/cds')
+const { Readable } = require('node:stream')
 
 const NULL = (2n ** 64n) - 1n
 const COL_HEADER_SIZE = 32n
@@ -14,7 +15,7 @@ class Store {
     this.elements = definition.elements
     this.columns = Object.keys(this.elements)
     if (this.width < 1) cds.error`Cannot define a store without any columns`
-    this._queues = {}
+    this._cache = {}
   }
 
   /**
@@ -64,6 +65,21 @@ class Store {
     return hash('shake128', compound, 'buffer')
   }
 
+  async update(rowss) {
+    const fs = await this.srv.fs
+
+    const files = []
+    for (const col in rowss) {
+      this._cache[col] = undefined
+      files.push({
+        name: `${this.name}/${col}.col`,
+        data: Readable.from(rowss[col], { objectMode: false }),
+      })
+    }
+
+    return fs.upsert(files).into(fs.entities.files)
+  }
+
   async insert(rows) {
     if (rows.length === 0) return
 
@@ -84,10 +100,12 @@ class Store {
     const timestamp = BigInt(Date.now())
 
     for await (const row of rows) {
+      const rowID = this.rowID(row)
       for (const col of columns) {
         const val = row[col.name]
+        if (val === undefined) continue
         const data = Buffer.from(JSON.stringify(val ?? null))
-        col.file.write(this.rowID(row))
+        col.file.write(rowID)
         col.file.write(new BigUint64Array([timestamp, BigInt(data.byteLength)]))
         col.file.write(data)
       }
@@ -97,76 +115,88 @@ class Store {
     await write
   }
 
-  read_col(col, cb) {
+  async read_col(col, cb) {
+    let rows
+    if (Date.now() < this._cache[col]?.ttl) rows = await this._cache[col]
+    else {
+      this._cache[col] = this.read_chunks(`${this.name}/${col}.col`)
+        .then(chunks => this.read_col_exec(chunks))
+      this._cache[col].catch(() => { }).then(() => {
+        const ttl = cds.utils.ms4(this.elements[col]['@cache.ttl'] ?? this.definition['@cache.ttl'] ?? 10000)
+        this._cache[col].ttl = Date.now() + ttl
+      })
+      this._cache[col].ttl = Number.POSITIVE_INFINITY
+      rows = await this._cache[col]
+    }
+    for (const row of rows) cb(row)
+  }
+
+  async read_chunks(filename) {
     if (!this._chunks) {
       const list = []
-      this._chunks = this.srv.fs.then(fs => fs.read`${fs.entities.chunks}[file.name in ${{ list }}]`)
+      this._chunks = new Promise((resolve, reject) => {
+        setImmediate(async () => {
+          try {
+            const fs = await this.srv.fs
+            this._chunks = undefined
+            const ret = fs.read`${fs.entities.chunks}[file.name in ${{ list }}]`
+            resolve(ret)
+          } catch (err) { reject(err) }
+        })
+      })
       this._chunks.list = list
     }
-    this._chunks.list.push({ val: `${this.name}/${col}.col` })
-
-    if (this._timeout) clearTimeout(this._timeout)
-    this._timeout = setTimeout(() => { this.read_col_drain() }, 20) || true
-
-    const queue = this._queues[col] ??= []
-    if (!queue.prom) {
-      queue.prom = new Promise((resolve, reject) => {
-        queue.resolve = resolve
-        queue.reject = reject
-      })
-    }
-
-    queue.push(cb)
-
-    return queue.prom
+    this._chunks.list.push({ val: filename })
+    return this._chunks.then(chunks => chunks.filter(chunk => chunk.file_name.startsWith(filename)))
   }
 
-  async read_col_drain() {
-    this._timeout = undefined
-    const queues = this._queues
-    this._queues = {}
-    const chunks = this._chunks
-    this._chunks = false
-
-    for (const col in queues) {
-      const queue = queues[col]
-      this.read_col_exec(
-        chunks.then(chunks => chunks.filter(chunk => chunk.file_name.startsWith(`${this.name}/${col}.col`))),
-        queue, col
-      )
-        .then(queue.resolve, queue.reject)
-    }
-  }
-
-  async read_col_exec(chunks, cbs) {
-    // const fs = await this.srv.fs
-
+  async read_col_exec(chunks) {
     // TODO: ensure that the domain is correctly respected
     // const chunks = typeof col === 'string' ? await fs.read`${fs.entities.chunks}[file.name = ${this.name + '/' + col + '.col'}]` : col
+
+    const IDs = {}
+    const rows = []
+
     for (const chunk of await chunks) {
       const colRead = chunk.data
       let rowID
       let dataTimestamp
       let length
       let read
+      let carry
       const data = []
-      read: for await (const chunk of colRead) {
+      read: for await (let chunk of colRead) {
+        if (carry) {
+          chunk = Buffer.concat([carry, chunk])
+          carry = undefined
+        }
         let offset = 0
+        let start = -1
         while (true) {
           if (rowID == null) {
-            if (offset > chunk.length - 16) break
+            if (offset > chunk.length - 16) {
+              carry = chunk.subarray(offset)
+              break
+            }
+            start = offset
+            rowID = chunk.subarray(offset, offset + 16).toString('base64')
             data.push(chunk.subarray(offset, offset + 16))
-            rowID = offset
             offset += 16
           }
           if (dataTimestamp == null) {
-            if (offset > chunk.length - 8) break
+            if (offset > chunk.length - 8) {
+              carry = chunk.subarray(offset)
+              break
+            }
             data.push(chunk.subarray(offset, offset + 8))
             dataTimestamp = offset
             offset += 8
           }
           if (length == null) {
-            if (offset > chunk.length - 8) break
+            if (offset > chunk.length - 8) {
+              carry = chunk.subarray(offset)
+              break
+            }
             data.push(chunk.subarray(offset, offset + 8))
             length = chunk.readBigUint64LE(offset)
             offset += 8
@@ -174,9 +204,26 @@ class Store {
           }
 
           if (chunk.length - offset >= length - read) {
-            data.push(chunk.subarray(offset, offset + Number(length - read)))
-            const row = Buffer.concat(data)
-            for (const cb of cbs) cb(row)
+            let row
+            if (start > -1) {
+              // When whole row is inside a single chunk use the original buffer
+              row = chunk.subarray(start, offset + Number(length))
+            } else {
+              data.push(chunk.subarray(offset, offset + Number(length - read)))
+              row = Buffer.concat(data)
+            }
+
+            const index = IDs[rowID]
+            // Remove old row data that no longer matches
+            if (index > -1) {
+              if (this.timestamp(rows[index]) <= this.timestamp(row)) rows[index] = row
+            }
+            else {
+              IDs[rowID] = rows.length
+              rows.push(row)
+            }
+
+            // for (const cb of cbs) cb(row)
             // if (await cb() === false) break read
             data.length = 0
             offset += Number(length - read)
@@ -188,7 +235,12 @@ class Store {
           break
         }
       }
+
+      // if(length) {
+      //   debugger
+      // }
     }
+    return rows
   }
 
 }

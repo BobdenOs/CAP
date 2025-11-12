@@ -118,22 +118,19 @@ module.exports = class DNSService extends cds.ApplicationService {
   }
 
   async domains() {
-    await Promise.all([
+    const proms = [
       this.run(cds.ql.INSERT(
         cds.env.ssl.A
           .map(ip => cds.env.ssl.names.map(name => ({ ...ip, name })))
           .flat()
-      ).into(this.entities.A))
-        .catch(err => { debugger }),
+      ).into(this.entities.A)),
       this.run(cds.ql.INSERT(
         cds.env.ssl.AAAA
           .map(ip => cds.env.ssl.names.map(name => ({ ...ip, name })))
           .flat()
-      ).into(this.entities.AAAA))
-        .catch(err => {
-          debugger
-        }),
-    ])
+      ).into(this.entities.AAAA)),
+    ]
+
 
     const domains = {}
     for (const name of cds.env.ssl.names) {
@@ -144,7 +141,6 @@ module.exports = class DNSService extends cds.ApplicationService {
       }
     }
 
-    const proms = []
     for (const domain in domains) proms.push(this.synchronize(domain))
 
     return Promise.allSettled(proms)
@@ -170,15 +166,19 @@ module.exports = class DNSService extends cds.ApplicationService {
           .map(ip => cds.ql.INSERT({ ...ip, name }).into(this.entities.AAAA)),
       ]).flat()
 
-      await Promise.allSettled(inserts.map(q => remote.run(q)))
+      const insertProm = Promise.allSettled(inserts.map(q => remote.run(q)))
 
       const [A, AAAA] = await Promise.all([
         remote.run(cds.ql.SELECT.from(this.entities.A)),
         remote.run(cds.ql.SELECT.from(this.entities.AAAA)),
       ])
 
-      await this.run(cds.ql.INSERT(A).into('A'))
-      await this.run(cds.ql.INSERT(AAAA).into('AAAA'))
+      await Promise.allSettled([
+        insertProm,
+        this.run(cds.ql.INSERT(A).into('A')),
+        this.run(cds.ql.INSERT(AAAA).into('AAAA')),
+      ])
+
     } catch (err) {
       if (err.reason.code === 'ECONNREFUSED' && retry) return this.synchronize(domain, false)
       throw err

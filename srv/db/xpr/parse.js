@@ -39,42 +39,16 @@ const parse = function (query, xpr, ret = []) {
       const rowss = await Promise.all(cols.map(col => col()))
 
       if (kind === 'UPDATE') {
-        const fs = await this.fs
-
-        const colFiles = columns.map((col) => {
-          const name = column_name(col)
-          const fileName = `${query._target.name}/${name}.col`
-          const file = new PassThrough()
-          return { name, file, fileName }
-        })
-
-        const files = colFiles.map(col => ({
-          name: col.fileName,
-          data: col.file,
-        }))
-
-        const write = fs.upsert(files).into(fs.entities.files)
-
-        let column = 0
-        for (const rows of rowss) {
-          const { file } = colFiles[column]
-          column++
-
-          const IDs = []
-          for (const row of rows) {
-            const rowID = row.subarray(0, 16)
-            const index = IDs.findIndex(ID => ID.compare(rowID) === 0)
-            if (index > -1) continue
-            IDs.push(rowID)
-            file.write(row)
-          }
-          file.end()
-        }
-
-        return write
+        const store = this.store(query._target)
+        const cols = {}
+        columns.forEach((col, i) => cols[column_name(col)] = rowss[i])
+        return store.update(cols)
       }
 
-      const IDs = []
+      const empty = {}
+      columns.forEach(col => empty[column_name(col)] = null)
+
+      const IDs = {}
       const results = []
       let column = 0
       for (const rows of rowss) {
@@ -82,13 +56,13 @@ const parse = function (query, xpr, ret = []) {
         column++
 
         for (const row of rows) {
-          const rowID = row.subarray(0, 16)
-          const index = IDs.findIndex(ID => ID.compare(rowID) === 0)
+          const rowID = row.subarray(0, 16).toString('base64')
+          const index = IDs[rowID]
           const value = JSON.parse(row.subarray(32))
           if (index > -1) results[index][columnName] = value
           else {
-            IDs.push(rowID)
-            results.push({ [columnName]: value })
+            IDs[rowID] = results.length
+            results.push({ ...empty, [columnName]: value })
           }
         }
       }
@@ -112,6 +86,13 @@ const parse = function (query, xpr, ret = []) {
     //     process.exit(1)
     //   }
     // }
+  }
+
+  if (xpr[0] in { case: 1, CASE: 1 }) {
+    if (ret.includes(static.unknown)) xpr = [{ val: null }]
+    else {
+      debugger
+    }
   }
 
   // Find lowest operator

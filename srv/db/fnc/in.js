@@ -36,10 +36,10 @@ impl.sync.ref.static = async function (ref, static) {
     if (!curData) curData = static().map(data => Buffer.isBuffer(data) ? data : Buffer.from(JSON.stringify(data)))
     const rowData = row.subarray(32)
     if (curData.findIndex(data => data.compare(rowData) === 0) < 0) {
-      const rowID = row.subarray(0, 16)
-      const index = matches.findIndex(r => rowID.compare(r.subarray(16)) === 0)
+      // const rowID = row.subarray(0, 16)
+      // const index = matches.findIndex(r => rowID.compare(r.subarray(16)) === 0)
       // Remove old row data that no longer matches
-      if (index > -1 && store.timestamp(matches[index]) < store.timestamp(row)) matches.splice(index, 1)
+      // if (index > -1 && store.timestamp(matches[index]) < store.timestamp(row)) matches.splice(index, 1)
       return
     }
     matches.push(row)

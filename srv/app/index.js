@@ -76,12 +76,14 @@ module.exports = class APPService extends cds.ApplicationService {
       await new Promise((resolve) => setTimeout(resolve, 10000))
     } else {
       const fs = await this.fs
+      // TODO: this query should include the current domain to no auto host all parent applications
       const chunks = await fs.run(cds.ql.SELECT('data').from(fs.entities.chunks).where`file.name = ${application}`)
-      if (chunks.length !== 1) {
+      if (chunks.length < 1) {
         app.status = 'failed'
         return { changes: 1 }
       }
       const [{ data: toTar }] = chunks
+
       // Stream archive into tar to be unpacked
       const tar = cds.utils.tar.xz(toTar).to(appFolder)
       await tar
@@ -116,7 +118,9 @@ module.exports = class APPService extends cds.ApplicationService {
       // Serve app
       await cds.serve('all').in(rootApp)
       cds.app.serve('/').from(appFolder, 'app')
-      await cds.deploy(csn).to(cds.db)
+      // cds.deploy is not needed as the sap.cap.db will create the entity on the fly
+      // when the first piece of data is written to the entity
+      await cds.deploy.data(cds.db)
 
       for (const each of cds.service.providers) {
         const endpoint = each.endpoints[0]
@@ -171,6 +175,8 @@ module.exports = class APPService extends cds.ApplicationService {
 
   async _loadApps() {
     const fs = await this.fs
+
+    // TODO: this query should include the current domain to no auto host all parent applications
     const applications = await fs.run(cds.ql.SELECT.from(fs.entities.files))
 
     for (const application of applications) {
@@ -192,7 +198,7 @@ module.exports = class APPService extends cds.ApplicationService {
     this._store.applications.push(created)
     this._store.index[application] = created
 
-    created.port = cds.app.server.address().port
+    created.port = Number(cds.app.server?.address()?.port || process.env.PORT || 443)
 
     return created
   }

@@ -15,14 +15,21 @@ module.exports = class FSService extends cds.ApplicationService {
     this._root = `${process.env.FS_MOUNT || process.cwd()}/storage/`
     this.db = (await cds.connect.to('sap.cap.db')).bind(this)
 
+    const domain = cds.env.ssl.names[0].split('.').slice(1).join('.')
+    this._remote = await cds.connect.to(this.name, {
+      kind: 'odata',
+      credentials: {
+        url: `https://${domain}/odata/v4/fs`,
+        mtls: true,
+        trustStoreCertificate: {
+          content: btoa(global.cds.env.ssl.ca)
+        },
+      }
+    })
+
     this.on(["SELECT"], this.onSELECT)
     this.on(["INSERT", "UPSERT"], this.onINSERT)
     this.on(["UPDATE"], this.onUPDATE)
-  }
-
-  run() {
-    if (!this.owner) cds.error`sap.cap.fs requires the service to be bound to an owner`
-    return super.run(...arguments)
   }
 
   disconnect() { }
@@ -40,13 +47,25 @@ module.exports = class FSService extends cds.ApplicationService {
     if (req.query._target !== files && req.query._target !== chunks) { debugger }
     let q = req.query
 
-    if (q._target === files) return this.db.run(q.where`owner=${this.owner.name}`)
+    const external = []
+    if (cds.env.ssl.names[0] === 'dev.sap.cap' && !q.SELECT.one) {
+      const parent = await this._SELECT_Parent(req).catch(err => { debugger })
+      if (parent?.length) for (const row of parent) {
+        external.push(row)
+      }
+    }
+
+    if (q._target === files) {
+      const ret = await this.db.run(this.owner ? q.where`owner=${this.owner.name}` : q)
+      if (Array.isArray(ret)) for (const row of external) ret.push(row)
+      return ret
+    }
     if (q._target === chunks) {
 
       // Cyclic dependency breaker: enforcing local copy of chunk location index
-      if (this.owner.name === 'sap.cap.db') {
+      if (this.owner?.name === 'sap.cap.db') {
         q = cqn4sql(q, this.model)
-        const root_file = q.SELECT.where.find(val => /sap.cap.fs.chunks\//.test(val.val) || (val.list && !val.list?.find(val => !/sap.cap.fs.chunks\//.test(val.val))))
+        const root_file = q.SELECT.where?.find(val => /sap.cap.fs.chunks\//.test(val.val) || (val.list && !val.list?.find(val => !/sap.cap.fs.chunks\//.test(val.val))))
         if (root_file) {
           const localFileNameRegex = new RegExp(root_file.val
             ? root_file.val.replace('sap.cap.fs.chunks/', '').replaceAll('.', '\\.') + '#(\\d*)'
@@ -83,19 +102,80 @@ module.exports = class FSService extends cds.ApplicationService {
         }
       }
 
-      if (q.elements.data) q.columns`local,file_name,index`
-      const ret = await this.db.run(q.where`file_owner=${this.owner.name}`)
-
+      if (q.elements.data || req.http?.req?.url?.indexOf('$select=data')) q.columns`local,file_owner,file_name,index`
+      const ret = await this.db.run(this.owner?.name ? q.where`file_owner=${this.owner.name}` : q)
+      const proms = []
       if (!Array.isArray(ret)) {
-        if (ret.local) ret.data = cds.utils.fs.createReadStream(`${this._root}${ret.file_name}#${ret.index}`)
-      } else for (const row of ret) {
-        if (row.local) row.data = cds.utils.fs.createReadStream(`${this._root}${row.file_name}#${row.index}`)
+        if (ret.local) {
+          if (req.tx === req.context.tx && req?.http?.req) proms.push(cds.utils.fs.promises.readFile(this.owner ? `${this._root}${ret.file_name}#${ret.index}` : `${this._root}${ret.file_owner}/${ret.file_name}#${ret.index}`, 'base64').then(data => ret.data = data))
+          else ret.data = cds.utils.fs.createReadStream(this.owner ? `${this._root}${ret.file_name}#${ret.index}` : `${this._root}${ret.file_owner}/${ret.file_name}#${ret.index}`)
+        }
+      } else {
+        for (const row of ret) if (row.local) {
+          if (req.tx === req.context.tx && req?.http?.req) proms.push(cds.utils.fs.promises.readFile(this.owner ? `${this._root}${row.file_name}#${row.index}` : `${this._root}${row.file_owner}/${row.file_name}#${row.index}`, 'base64').then(data => row.data = data))
+          else row.data = cds.utils.fs.createReadStream(this.owner ? `${this._root}${row.file_name}#${row.index}` : `${this._root}${row.file_owner}/${row.file_name}#${row.index}`)
+        }
+        for (const parent of external) ret.push(parent)
       }
+      if (proms.length) await Promise.all(proms)
 
       return ret
     }
 
     debugger
+  }
+
+  async _SELECT_Parent(req) {
+    const remote = this._remote
+
+    const query = req.query.clone()
+    if (query.SELECT.from?.ref?.[0]?.where) {
+      query.where(query.SELECT.from.ref[0].where)
+      query.SELECT.from = { ref: [query.SELECT.from.ref[0].id] }
+    }
+    if (query._target === this.entities.files) {
+      query.where`owner=${this.owner.name}`
+    } else if (query._target === this.entities.chunks) {
+      query.where`file_owner=${this.owner.name}`
+    }
+
+    const rows = await remote.run(query)
+    // const proms = []
+    for (const row of rows) {
+      // REVISIT: there are many options to make proper streams out of file chunks
+      //          but with the current way the remote service works it is mostly overhead
+      if (typeof row.data === 'string') row.data = Readable.from(async function* (data) { yield Buffer.from(data,'base64') }(row.data), { objectMode: false })
+      // if (query.elements.data) {
+      // proms.push(
+      // await remote.send({
+      //   _resolved: true,
+      //   query: cds.ql.SELECT`FROM ${this.entities.chunks}[file_name=${row.file_name} and file_owner=${row.file_owner} and index=${row.index}].data`,
+      //   headers: { 'accept': 'application/octet-stream' },
+      // })
+      //   .then(data => row.data = data)
+      //   .catch(() => row.data = null)
+      // )
+      // row.data = Readable.from(this._SELECT_Parent_data(remote, row), { objectMode: false })
+      // }
+    }
+    // await Promise.all(proms)
+    return rows
+  }
+
+  async * _SELECT_Parent_data(remote, row) {
+    yield* await remote.send(
+      {
+        _resolved: true,
+        query: cds.ql.SELECT`FROM ${this.entities.chunks}[file_name=${row.file_name} and file_owner=${row.file_owner} and index=${row.index}].data`,
+        headers: { 'accept': 'application/octet-stream' },
+      }
+    )
+    // yield Buffer.from(await remote.send(
+    //   {
+    //     query: cds.ql.SELECT`FROM ${this.entities.chunks}[file_name=${row.file_name} and file_owner=${row.file_owner} and index=${row.index}].data`,
+    //     headers: { 'accept': 'application/octet-stream' },
+    //   }
+    // ), 'binary')
   }
 
   async onINSERT(req) {
