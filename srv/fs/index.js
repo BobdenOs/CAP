@@ -49,7 +49,9 @@ module.exports = class FSService extends cds.ApplicationService {
 
     const external = []
     if (cds.env.ssl.names[0] === 'dev.sap.cap' && !q.SELECT.one) {
-      const parent = await this._SELECT_Parent(req).catch(err => { debugger })
+      const parent = await this._SELECT_Parent(req)
+        // REVISIT: used to identify cluster config issue when calling top level domains
+        .catch(err => { /*debugger*/ })
       if (parent?.length) for (const row of parent) {
         external.push(row)
       }
@@ -144,7 +146,7 @@ module.exports = class FSService extends cds.ApplicationService {
     for (const row of rows) {
       // REVISIT: there are many options to make proper streams out of file chunks
       //          but with the current way the remote service works it is mostly overhead
-      if (typeof row.data === 'string') row.data = Readable.from(async function* (data) { yield Buffer.from(data,'base64') }(row.data), { objectMode: false })
+      if (typeof row.data === 'string') row.data = Readable.from(async function* (data) { yield Buffer.from(data, 'base64') }(row.data), { objectMode: false })
       // if (query.elements.data) {
       // proms.push(
       // await remote.send({

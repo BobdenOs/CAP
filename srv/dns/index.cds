@@ -7,8 +7,8 @@ service dns {
     dns.type: 5,
   )
   entity CNAME {
-    name  : name;
-    alias : name;
+    key name  : name;
+    key alias : name;
   };
 
   @(
@@ -17,7 +17,7 @@ service dns {
   )
   entity A {
     key name : name;
-        ip   : Binary(4);
+    key ip   : Binary(4);
         url  : String(15);
   };
 
@@ -27,7 +27,7 @@ service dns {
   )
   entity AAAA {
     key name : name;
-        ip   : Binary(16);
+    key ip   : Binary(16);
         url  : String(39);
   };
 
@@ -41,4 +41,4 @@ service dns {
   };
 }
 
-type name  : String(5000);
+type name : String(5000);

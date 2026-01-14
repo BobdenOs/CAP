@@ -1,9 +1,8 @@
 const { Readable } = require('stream')
+const express = require('express')
 
 const cds = require("@sap/cds");
 const cqn4sql = require("@cap-js/db-service/lib/cqn4sql");
-const landingPage = require('@sap/cds/app/index.js')
-const htmlGetter = Object.getOwnPropertyDescriptor(landingPage, 'html')
 
 const LOG = cds.log('app')
 
@@ -20,6 +19,34 @@ module.exports = class APPService extends cds.ApplicationService {
     this.on(["SELECT"], this.onSELECT);
     this.on(["INSERT"], this.onINSERT);
     this.on(["UPDATE"], this.onUPDATE);
+
+    const fioriConfig = '/appconfig/fioriSandboxConfig.json'
+    const rootStatic = express.static(cds.utils.path.resolve(cds.root, 'app'))
+    cds.app.use('/', async (req, res, next) => {
+      const host = req.hostname
+      let app
+      if (host) for (let name of cds.env.ssl.names) if (host.endsWith(name)) app = host.slice(0, name.length * -1 - 1)
+      const apps = cds.services['sap.cap.app']?.apps
+      if (apps?.[app]) {
+        if (req.url === '/') return res.redirect(apps[app].appIndex)
+        return apps[app].static?.(req, res, next)
+      }
+      if (req.path === fioriConfig) {
+        try {
+          const defaultConfig = JSON.parse(await cds.utils.fs.promises.readFile(cds.utils.path.resolve(cds.root, `app${fioriConfig}`)))
+          for (const app in apps) defaultConfig.applications[`${app}-open`] = {
+            title: app,
+            description: app,
+            applicationType: 'URL',
+            url: `https://${app}.${host}/`,
+          }
+          return res.json(defaultConfig)
+        } catch (err) {
+          return next(err)
+        }
+      }
+      return rootStatic(req, res, next)
+    })
 
     cds.on('listening', () => this._loadApps())
   }
@@ -117,10 +144,10 @@ module.exports = class APPService extends cds.ApplicationService {
 
       // Serve app
       await cds.serve('all').in(rootApp)
-      cds.app.serve('/').from(appFolder, 'app')
       // cds.deploy is not needed as the sap.cap.db will create the entity on the fly
       // when the first piece of data is written to the entity
       await cds.deploy.data(cds.db)
+      await cds.emit('served', cds.services)
 
       for (const each of cds.service.providers) {
         const endpoint = each.endpoints[0]
@@ -136,12 +163,14 @@ module.exports = class APPService extends cds.ApplicationService {
       Object.defineProperty(app, 'model', { value: (app.db.model = cds.model), configurable: true })
       Object.defineProperty(app, 'services', { value: cds.services, configurable: true })
       Object.defineProperty(app, 'providers', { value: cds.service.providers, configurable: true })
+      Object.defineProperty(app, 'static', {
+        value: express.static(cds.utils.path.resolve(appFolder, 'app')),
+        configurable: true,
+      })
 
-      // update default index page with the latest application
-      const _app_links = cds.utils.fs.find(this._root, ['*/app/*.html', '*/app/*/*.html', '*/app/*/*/*.html'])
-        .map(file => 'https://' + cds.utils.fs.path.relative(this._root, file).replace(/\\/g, '/').replace('/app/', `.${rootDomain}/`))
-      Object.defineProperty(landingPage, 'html', htmlGetter)
-      rootApp._app_links = _app_links
+      const appIndex = cds.utils.fs.find(appFolder, ['app/*.html', 'app/*/*.html', 'app/*/*/*.html'])
+        .map(file => 'https://' + cds.utils.fs.path.relative(appFolder, file).replace(/\\/g, '/').replace('app/', `${application}.${rootDomain}/`))
+      Object.defineProperty(app, 'appIndex', { value: appIndex[0], configurable: true })
     } finally {
       cds.db = rootDB
       cds.app = rootApp
@@ -232,7 +261,7 @@ Object.defineProperty(cds.service, 'providers', {
 const _with = cds._with
 cds._with = function (context) {
   // context = context.context || context
-  const host = context.http?.req?.host
+  const host = context.http?.req?.hostname
   let app
   if (host) for (let name of cds.env.ssl.names) if (host.endsWith(name)) app = host.slice(0, name.length * -1 - 1)
   const apps = cds.services['sap.cap.app']?.apps

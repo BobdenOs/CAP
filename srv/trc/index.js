@@ -129,9 +129,9 @@ function self(traces) {
         const time = t.times[i]
         if (time.start < child.start && time.end > child.end) {
           t.times.splice(i, 1, { start: time.start, end: child.start }, { start: child.end, end: time.end })
-        } else if (time.start <= child.start && time.end <= child.end) {
+        } else if (time.start <= child.start && time.end >= child.start && time.end <= child.end) {
           time.end = child.start
-        } else if (time.start >= child.start && time.end >= child.end) {
+        } else if (time.start >= child.start && time.start <= child.end && time.end >= child.end) {
           time.start = child.end
         }
       }

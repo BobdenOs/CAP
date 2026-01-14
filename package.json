@@ -36,8 +36,11 @@
     "capire/*"
   ],
   "cds": {
+    "folders": {
+      "app": "!!!"
+    },
     "server": {
-      "index": true
+      "index": false
     },
     "log": {
       "format": "plain",

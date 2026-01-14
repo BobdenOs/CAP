@@ -1,0 +1,51 @@
+<core:FragmentDefinition controllerName="trc.custom.GanttTraces" xmlns:core="sap.ui.core"
+  xmlns:customData="http://schemas.sap.com/sapui5/extension/sap.ui.core.CustomData/1" xmlns="sap.gantt.simple"
+  xmlns:axistime="sap.gantt.axistime" xmlns:config="sap.gantt.config" xmlns:mvc="sap.ui.core.mvc" xmlns:m="sap.m"
+  xmlns:l="sap.ui.layout" xmlns:shapes="sap.gantt.simple.shapes" xmlns:table="sap.ui.table"
+  xmlns:rm="sap.ui.table.rowmodes">
+  <GanttChartContainer height="1000px" core:require="{controller: 'trc/custom/GanttTraces'}"
+    modelContextChange="controller.onloaded" customData:correlation="{correlation}">
+    <toolbar>
+      <ContainerToolbar showDisplayTypeButton="true" showBirdEyeButton="true" id="containerToolbar" />
+    </toolbar>
+    <GanttChartWithTable id="gantt" showTextOnGhost="true" shapeSelectionMode="MultiWithKeyboardAndLasso">
+      <axisTimeStrategy>
+        <axistime:ProportionZoomStrategy enableMillisecondSupport="true" zoomLevels="15" id="proportion">
+          <axistime:totalHorizon>
+            <config:TimeHorizon startTime="20250101000000" endTime="20250101000000" />
+          </axistime:totalHorizon>
+          <axistime:visibleHorizon>
+            <config:TimeHorizon startTime="20250101000000" endTime="20250101000000" />
+          </axistime:visibleHorizon>
+        </axistime:ProportionZoomStrategy>
+      </axisTimeStrategy>
+      <table>
+        <table:Table selectionMode="Single" selectionBehavior="RowSelector" enableColumnReordering="true"
+          rows="{path: '/traces', filters: [{ path: 'correlation', operator: 'EQ', value1: null }]}">
+          <table:columns>
+            <table:Column>
+              <m:Text text="Name" />
+              <table:template>
+                <m:Text text="{name}" />
+              </table:template>
+            </table:Column>
+          </table:columns>
+          <table:rowMode>
+            <rm:Auto minRowCount="12" />
+          </table:rowMode>
+          <table:rowSettingsTemplate>
+            <GanttRowSettings rowId="{ID}">
+              <shapes1>
+                <BaseRectangle core:require="{controller: 'trc/custom/GanttTraces'}" tooltip="{ID}" shapeId="{ID}"
+                  time="{start}" endTime="{end}"
+                  fill="{parts: [{path: 'domain'}, {path: 'server'}], formatter:'controller.color'}"
+                  selectedFill="{parts: [{path: 'domain'}, {path: 'server'}], formatter:'controller.color'}"
+                  hoverable="true" height="19" selectable="true" countInBirdEye="true" />
+              </shapes1>
+            </GanttRowSettings>
+          </table:rowSettingsTemplate>
+        </table:Table>
+      </table>
+    </GanttChartWithTable>
+  </GanttChartContainer>
+</core:FragmentDefinition>

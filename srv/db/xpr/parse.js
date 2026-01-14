@@ -31,12 +31,15 @@ const parse = function (query, xpr, ret = []) {
     }
     const cols = columns.map(col => {
       let fn = this.parse(query, [col, '<<', whereShared], ret.length ? ret : [static.unknown, rows])
-      if (typeof fn === 'error') fn = this.parse(query, [col, '<<', where], ret.length ? ret : [static.unknown, rows])
+      if (fn instanceof Error) fn = this.parse(query, [col, '<<', where], ret.length ? ret : [static.unknown, rows])
       return fn
     })
 
-    return async () => {
-      const rowss = await Promise.all(cols.map(col => col()))
+    const errors = cols.filter(col => typeof col !== 'function')
+    if (errors.length) cds.error`Failed to parse query: \n${errors.join('\n')}`
+
+    return async (context) => {
+      const rowss = await Promise.all(cols.map(col => col(context)))
 
       if (kind === 'UPDATE') {
         const store = this.store(query._target)
@@ -56,6 +59,7 @@ const parse = function (query, xpr, ret = []) {
         column++
 
         for (const row of rows) {
+          if (!row) continue
           const rowID = row.subarray(0, 16).toString('base64')
           const index = IDs[rowID]
           const value = JSON.parse(row.subarray(32))
@@ -153,7 +157,7 @@ const parse = function (query, xpr, ret = []) {
     const expr = xpr[0]
     if (typeof expr === 'function' && expr.ret) {
       if (ret.includes(expr.ret)) return expr
-      debugger
+      return new Error(`not supported: ${expr.name} for current return types`)
     }
     if (!expr || typeof expr !== 'object') { debugger; cds.error`not supported: ${expr}` }
 
@@ -188,10 +192,39 @@ const parse = function (query, xpr, ret = []) {
         // References that start with an entity name (e.g. q.SELECT.from)
         if (i === 1 && this.model.definitions[id]) {
           entity = this.model.definitions[id]
-        } else if (i === 1 && query._subject.as === id) {
+        } else if (i === 1 && query.SELECT?.from?.as === id) {
           entity = query._target
         } else if (i < expr.ref.length) {
           col = entity.elements[id]
+          if (col._target !== entity) {
+            if (ret.includes(types.SELECT)) {
+              let parent = entity
+              while (parent.query) parent = parent.query._target
+              const link = function () {
+                return [this.context.rowID]
+              }
+              link.ret = rows
+
+              const subRoutine = this.parse(cds.ql.SELECT.from(col._target), [{ ref: expr.ref.slice(i) }, '<<', link], [rows])
+
+              const impl = function () {
+                return {
+                  col: col.name,
+                  parent,
+                  async fn(parentRow) {
+                    const rowID = Buffer.from(JSON.parse(parentRow.slice(32)), 'hex')
+                    const res = await subRoutine({ rowID })
+                    if (!res?.length) return
+                    return Buffer.concat([parentRow.slice(0, 16), res[0].slice(16)])
+                  },
+                }
+              }
+
+              impl.ret = types.SELECT
+              return this.wrap(impl)
+            }
+            // return new Error(`not supported: path expressions are WIP`)
+          }
           entity = col._target
         } else {
           if (col?.foreignKeys?.[id]) {
@@ -207,14 +240,52 @@ const parse = function (query, xpr, ret = []) {
         if (where) return this.parse(query, [{ xpr: where }, 'and', { ref: [entity.name] }], ret)
         const apis = source.apis.filter(fn => ret.includes(fn.ret))
         if (apis.length === 0) return new cds.error(`not supported: table with return type: ${ret.map(r => r.name)}`)
-        return this.wrap(apis[0], entity, where) // 0 should be the most efficient available implementations
+        return this.wrap(apis[0], () => entity, () => where) // 0 should be the most efficient available implementations
+      }
+
+      if (expr.expand) {
+        if (ret.includes(types.SELECT)) {
+          let parent = entity
+          while (parent.query) parent = parent.query._target
+          // CURRENT PROGRESS:
+          // is2one: seems to work
+          // is2many: not yet supported
+
+          const link = function () {
+            return [this.context.rowID]
+          }
+          link.ret = rows
+
+          const subQuery = cds.ql.SELECT(expr.expand).from(col._target).where([link])
+          if (col.is2one) subQuery.SELECT.one = true
+          const subRoutine = this.parse(subQuery)
+
+          const impl = function () {
+            return {
+              col: col.name,
+              parent,
+              async fn(parentRow) {
+                const rowID = Buffer.from(JSON.parse(parentRow.slice(32)), 'hex')
+                const res = await subRoutine({ rowID })
+                if (!res) return
+                const data = Buffer.from(JSON.stringify(res))
+                parentRow.writeBigInt64LE(BigInt(data.byteLength), 24)
+                return Buffer.concat([parentRow.slice(0, 32), data])
+              },
+            }
+          }
+
+          impl.ret = types.SELECT
+          return this.wrap(impl)
+        }
+        return new Error(`not supported: expand queries are WIP`)
       }
 
       if (entity.query) {
         if (entity.query.SELECT.columns) {
-          const def = entity.query.SELECT.columns.find(col => col !== '*' && column_name(col) === col.name)
+          const def = entity.query.SELECT.columns.find(c => c !== '*' && column_name(c) === col.name)
           if (def) {
-            debugger
+            return this.parse(entity.query, [def], ret)
           }
         }
         return this.parse(query, [{ ref: [entity.query._target.name, col.name] }], ret)
@@ -222,7 +293,7 @@ const parse = function (query, xpr, ret = []) {
 
       const apis = column.apis.filter(fn => ret.includes(fn.ret))
       if (apis.length === 0) return new cds.error(`not supported: column with return type: ${ret.map(r => r.name)}`)
-      return this.wrap(apis[0], col, where) // 0 should be the most efficient available implementations
+      return this.wrap(apis[0], () => col, () => where) // 0 should be the most efficient available implementations
     }
     debugger
   }
@@ -243,7 +314,12 @@ function wrap(fn, arg0, arg1) {
   //   else this._depth -= 2
   //   return ret
   // }
-  const ret = () => fn.call(this, arg0, arg1)
+  const self = this
+  const ret = function (context) {
+    if (context) context = { __proto__: self, context }
+    else context = this === global ? self : this
+    return fn.call(context, arg0?.bind(context), arg1?.bind(context))
+  }
   ret.name = fn.name
   ret.ret = fn.ret
   ret.args = fn.args

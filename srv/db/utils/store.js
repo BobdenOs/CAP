@@ -7,6 +7,8 @@ const { Readable } = require('node:stream')
 const NULL = (2n ** 64n) - 1n
 const COL_HEADER_SIZE = 32n
 
+const noop = () => { }
+
 class Store {
   constructor(srv, definition) {
     this.srv = srv
@@ -58,10 +60,15 @@ class Store {
     if (Buffer.isBuffer(row)) return row.readBigUint64LE(16)
   }
 
-  rowID(row) {
+  rowID(row, keys = this.definition.keys) {
     if (Buffer.isBuffer(row)) return row.subarray(0, 16)
+    const k = Object.keys(keys)
+    if (k.length === 1 && keys[k[0]] instanceof cds.builtin.classes.UUID) {
+      // Convert UUID into rowID
+      return row[k[0]] && Buffer.from(row[k[0]].replaceAll('-', ''), 'hex')
+    }
     let compound = ''
-    for (const key in this.definition.keys) compound = `${compound};${row[key] == null ? '' : `${row[key].length}${row[key]}`}`
+    for (const key in keys) compound = `${compound};${row[key] == null ? '' : `${`${row[key]}`.length}${row[key]}`}`
     return hash('shake128', compound, 'buffer')
   }
 
@@ -88,7 +95,21 @@ class Store {
     const columns = await Promise.all(this.columns.map(async (name, index) => {
       const fileName = `${this.name}/${name}.col`
       const file = new PassThrough()
-      return { name, index, file, fileName }
+      const element = this.elements[name]
+      let extract = row => row[name]
+      if (element.isAssociation) {
+        if (element.is2one && element.keys) {
+          const fkeys = element.keys.reduce((l, c) => {
+            l[c.$generatedFieldName] = this.elements[c.$generatedFieldName]
+            return l
+          }, {})
+          extract = row => this.rowID(row, fkeys)
+        } else {
+          extract = noop
+        }
+      }
+
+      return { name, index, extract, file, fileName }
     }))
 
     const files = columns.map(col => ({
@@ -102,9 +123,11 @@ class Store {
     for await (const row of rows) {
       const rowID = this.rowID(row)
       for (const col of columns) {
-        const val = row[col.name]
+        let val = col.extract(row)
         if (val === undefined) continue
+        if (Buffer.isBuffer(val)) val = val.toString('hex')
         const data = Buffer.from(JSON.stringify(val ?? null))
+
         col.file.write(rowID)
         col.file.write(new BigUint64Array([timestamp, BigInt(data.byteLength)]))
         col.file.write(data)

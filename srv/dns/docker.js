@@ -127,7 +127,7 @@ async function extract() {
     console.log(`start: ${mapping.virtual.host}:${mapping.virtual.port}<==>${mapping.physical.host}:${mapping.physical.port}`)
     proms.push(mapping.prot === 'udp' ? proxyUDP(mapping) : proxy(mapping))
   }
-  await Promise.all(proms)
+  await Promise.allSettled(proms)
   console.log('proxy started')
 }
 

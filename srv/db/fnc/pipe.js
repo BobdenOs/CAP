@@ -8,15 +8,16 @@ impl.sync = {}
 impl.sync.ref = {}
 impl.sync.rows = {}
 impl.sync.static = {}
+impl.sync.SELECT = {}
 
 // -- sync impl
 impl.sync.ref.rows = async function (ref, rows) {
   // if (rows.length === 0) return rows
   ref = ref()
   const store = this.store(ref.parent)
-  
-  store.read_col(ref.name, () => {})
-  
+
+  store.read_col(ref.name, () => { })
+
   let rowIDs = {}
   rows = await rows()
   for (const row of rows) rowIDs[store.rowID(row).toString('base64')] = true
@@ -33,6 +34,7 @@ impl.sync.ref.rows.args = [ref, rows]
 impl.sync.ref.rows.ret = rows
 
 impl.sync.rows.ref = function (rows, ref) {
+  // TODO: fix
   return impl.sync.ref.rows(ref, rows)
 }
 
@@ -56,11 +58,28 @@ impl.sync.static.rows.args = [static.unknown, rows]
 impl.sync.static.rows.ret = rows
 
 impl.sync.rows.static = async function (rows, static) {
+  // TODO: fix
   return impl.sync.static.rows(static, rows)
 }
 
 impl.sync.rows.static.args = [rows, static.unknown]
 impl.sync.rows.static.ret = rows
+
+impl.sync.SELECT.static = async function (sub, static) {
+  if (!static()) return []
+  sub = sub()
+  const store = this.store(sub.parent)
+
+  const proms = []
+  await store.read_col(sub.col || Object.keys(sub.parent.keys)[0], (row) => {
+    proms.push(sub.fn(row))
+  })
+
+  return await Promise.all(proms)
+}
+
+impl.sync.SELECT.static.args = [types.SELECT, static.unknown]
+impl.sync.SELECT.static.ret = rows
 
 impl.sync.ref.static = async function (ref, static) {
   if (!static()) return []
@@ -77,6 +96,7 @@ impl.sync.ref.static.args = [ref, static.unknown]
 impl.sync.ref.static.ret = rows
 
 impl.sync.static.ref = function (static, ref) {
+  // TODO: fix it should return the static value for each row in the ref
   return impl.sync.ref.static(ref, static)
 }
 
@@ -87,13 +107,15 @@ impl.sync.static.ref.ret = rows
 // All implemented APIs for the function in order of preference
 const apis = [
   impl.sync.static.rows,
-  impl.sync.rows.static,
-
-  impl.sync.ref.static,
   impl.sync.static.ref,
+
+  impl.sync.rows.static,
+  impl.sync.ref.static,
 
   impl.sync.ref.rows,
   impl.sync.rows.ref,
+
+  impl.sync.SELECT.static,
 ]
 
 module.exports.apis = apis

@@ -1,0 +1,40 @@
+{
+  "services": {
+    "LaunchPage": {
+      "adapter": {
+        "config": {
+          "catalogs": [],
+          "groups": []
+        }
+      }
+    },
+    "NavTargetResolution": {
+      "config": {
+        "enableClientSideTargetResolution": true
+      }
+    },
+    "ClientSideTargetResolution": {
+      "adapter": {
+        "config": {
+          "inbounds": {}
+        }
+      }
+    }
+  },
+  "applications": {
+    "system-overview": {
+      "title": "System Overview",
+      "description": "System Overview",
+      "additionalInformation": "SAPUI5.Component=sys",
+      "applicationType": "URL",
+      "url": "/sys"
+    },
+    "traces-display": {
+      "title": "Traces Overview",
+      "description": "Traces Overview",
+      "additionalInformation": "SAPUI5.Component=trc",
+      "applicationType": "URL",
+      "url": "/trc"
+    }
+  }
+}

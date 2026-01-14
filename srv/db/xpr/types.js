@@ -27,6 +27,8 @@ const types = {
   Double, Decimal,
   Date, Time, DateTime, Timestamp,
   Binary, Vector, LargeBinary, LargeString,
+
+  SELECT: cds.ql.SELECT.prototype,
 }
 
 for (const type in types) {
