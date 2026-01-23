@@ -1,4 +1,4 @@
-const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const { types, statics, ref, rows, rowsAsync } = require('../xpr/types.js')
 
 const names = []
 const operators = ['<<']
@@ -41,8 +41,8 @@ impl.sync.rows.ref = function (rows, ref) {
 impl.sync.rows.ref.args = [rows, ref]
 impl.sync.rows.ref.ret = rows
 
-impl.sync.static.rows = async function (static, rows) {
-  const val = static()
+impl.sync.static.rows = async function (_static, rows) {
+  const val = _static()
   const timestamp = BigInt(Date.now())
   const data = Buffer.from(JSON.stringify(val ?? null))
   const dataBuffer = Buffer.concat([
@@ -54,19 +54,19 @@ impl.sync.static.rows = async function (static, rows) {
   return rows.map(row => Buffer.concat([row.subarray(0, 16), dataBuffer]))
 }
 
-impl.sync.static.rows.args = [static.unknown, rows]
+impl.sync.static.rows.args = [statics.unknown, rows]
 impl.sync.static.rows.ret = rows
 
-impl.sync.rows.static = async function (rows, static) {
+impl.sync.rows.static = async function (rows, _static) {
   // TODO: fix
-  return impl.sync.static.rows(static, rows)
+  return impl.sync.static.rows(_static, rows)
 }
 
-impl.sync.rows.static.args = [rows, static.unknown]
+impl.sync.rows.static.args = [rows, statics.unknown]
 impl.sync.rows.static.ret = rows
 
-impl.sync.SELECT.static = async function (sub, static) {
-  if (!static()) return []
+impl.sync.SELECT.static = async function (sub, _static) {
+  if (!_static()) return []
   sub = sub()
   const store = this.store(sub.parent)
 
@@ -78,11 +78,11 @@ impl.sync.SELECT.static = async function (sub, static) {
   return await Promise.all(proms)
 }
 
-impl.sync.SELECT.static.args = [types.SELECT, static.unknown]
+impl.sync.SELECT.static.args = [types.SELECT, statics.unknown]
 impl.sync.SELECT.static.ret = rows
 
-impl.sync.ref.static = async function (ref, static) {
-  if (!static()) return []
+impl.sync.ref.static = async function (ref, _static) {
+  if (!_static()) return []
   ref = ref()
   const store = this.store(ref.parent)
   const matches = []
@@ -92,15 +92,15 @@ impl.sync.ref.static = async function (ref, static) {
   return matches
 }
 
-impl.sync.ref.static.args = [ref, static.unknown]
+impl.sync.ref.static.args = [ref, statics.unknown]
 impl.sync.ref.static.ret = rows
 
-impl.sync.static.ref = function (static, ref) {
+impl.sync.static.ref = function (_static, ref) {
   // TODO: fix it should return the static value for each row in the ref
-  return impl.sync.ref.static(ref, static)
+  return impl.sync.ref.static(ref, _static)
 }
 
-impl.sync.static.ref.args = [static.unknown, ref]
+impl.sync.static.ref.args = [statics.unknown, ref]
 impl.sync.static.ref.ret = rows
 
 

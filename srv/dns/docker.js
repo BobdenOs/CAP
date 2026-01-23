@@ -204,10 +204,7 @@ function spawn(cmd, ...args) {
 async function* exec(...args) {
   const proc = child_process.spawn('docker', [...args, '--format', 'json'], { stdio: 'pipe' })
 
-  const prom = new Promise((resolve, reject) => {
-    proc.on('error', reject)
-    proc.on('exit', code => code ? reject(new Error(code)) : resolve)
-  })
+  proc.on('error', () => { }) // Just ignore when docker doesn't exist
 
   let leftover = ''
   for await (const chunk of proc.stdout) {

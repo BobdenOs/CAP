@@ -1,7 +1,7 @@
 const { PassThrough } = require('node:stream')
 
 const { operators, functions } = require('../fnc/index.js')
-const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const { types, statics, ref, rows, rowsAsync } = require('../xpr/types.js')
 const source = require('./src.js')
 const column = require('./col.js')
 
@@ -22,7 +22,7 @@ const parse = function (query, xpr, ret = []) {
     const kind = query.kind
     const from = query[kind].from || query[kind].entity
     const where = query[kind].where ? { xpr: [{ xpr: query[kind].where }, 'and', from] } : from
-    const whereShared = this.parse(query, [where], [static.unknown, rows])
+    const whereShared = this.parse(query, [where], [statics.unknown, rows])
 
     const columns = query.SELECT?.columns || []
     if (kind === 'UPDATE') {
@@ -30,8 +30,8 @@ const parse = function (query, xpr, ret = []) {
       for (const col in query.UPDATE.with) columns.push({ ...query.UPDATE.with[col], as: col })
     }
     const cols = columns.map(col => {
-      let fn = this.parse(query, [col, '<<', whereShared], ret.length ? ret : [static.unknown, rows])
-      if (fn instanceof Error) fn = this.parse(query, [col, '<<', where], ret.length ? ret : [static.unknown, rows])
+      let fn = this.parse(query, [col, '<<', whereShared], ret.length ? ret : [statics.unknown, rows])
+      if (fn instanceof Error) fn = this.parse(query, [col, '<<', where], ret.length ? ret : [statics.unknown, rows])
       return fn
     })
 
@@ -93,7 +93,7 @@ const parse = function (query, xpr, ret = []) {
   }
 
   if (xpr[0] in { case: 1, CASE: 1 }) {
-    if (ret.includes(static.unknown)) xpr = [{ val: null }]
+    if (ret.includes(statics.unknown)) xpr = [{ val: null }]
     else {
       debugger
     }
@@ -165,14 +165,14 @@ const parse = function (query, xpr, ret = []) {
     if ('val' in expr) {
       const getter = () => expr.val
       getter.args = []
-      getter.ret = static.unknown
+      getter.ret = statics.unknown
       return getter
     }
     if ('list' in expr) {
       // TODO: add proper list impl
       const getter = () => expr.list.map(val => val.val)
       getter.args = []
-      getter.ret = static.array
+      getter.ret = statics.array
       return getter
     }
     if ('ref' in expr) {
@@ -317,10 +317,10 @@ function wrap(fn, arg0, arg1) {
   const self = this
   const ret = function (context) {
     if (context) context = { __proto__: self, context }
-    else context = this === global ? self : this
+    else context = this === global ? self : this ?? self
     return fn.call(context, arg0?.bind(context), arg1?.bind(context))
   }
-  ret.name = fn.name
+  // ret.name = fn.name
   ret.ret = fn.ret
   ret.args = fn.args
   ret.fn = fn

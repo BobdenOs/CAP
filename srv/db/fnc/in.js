@@ -1,4 +1,4 @@
-const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const { types, statics, ref, rows, rowsAsync } = require('../xpr/types.js')
 
 const names = []
 const operators = ['in', 'IN']
@@ -17,15 +17,15 @@ impl.sync.static = {}
 impl.sync.static.ref = {}
 
 // -- async impl
-impl.async.ref.static = async function* (ref, static) {
+impl.async.ref.static = async function* (ref, _static) {
   throw new Error('TODO: implement')
 }
 
-impl.async.ref.static.args = [ref, static.array]
+impl.async.ref.static.args = [ref, statics.array]
 impl.async.ref.static.ret = rowsAsync
 
 // -- sync impl
-impl.sync.ref.static = async function (ref, static) {
+impl.sync.ref.static = async function (ref, _static) {
   ref = ref()
   const store = this.store(ref.parent)
 
@@ -33,7 +33,7 @@ impl.sync.ref.static = async function (ref, static) {
   let curData
   const matches = []
   await store.read_col(ref.name, (row) => {
-    if (!curData) curData = static().map(data => Buffer.isBuffer(data) ? data : Buffer.from(JSON.stringify(data)))
+    if (!curData) curData = _static().map(data => Buffer.isBuffer(data) ? data : Buffer.from(JSON.stringify(data)))
     const rowData = row.subarray(32)
     if (curData.findIndex(data => data.compare(rowData) === 0) < 0) {
       // const rowID = row.subarray(0, 16)
@@ -48,24 +48,24 @@ impl.sync.ref.static = async function (ref, static) {
   return matches
 }
 
-impl.sync.ref.static.args = [ref, static.array]
+impl.sync.ref.static.args = [ref, statics.array]
 impl.sync.ref.static.ret = rows
 
 
 // -- async aliases --
-impl.async.static.ref = function (static, ref) {
-  return impl.async.ref.static(ref, static)
+impl.async.static.ref = function (_static, ref) {
+  return impl.async.ref.static(ref, _static)
 }
 
-impl.async.static.ref.args = [static.array, ref]
+impl.async.static.ref.args = [statics.array, ref]
 impl.async.static.ref.ret = rowsAsync
 
 // -- sync aliases --
-impl.sync.static.ref = function (static, ref) {
-  return impl.sync.ref.static(ref, static)
+impl.sync.static.ref = function (_static, ref) {
+  return impl.sync.ref.static(ref, _static)
 }
 
-impl.sync.static.ref.args = [static.array, ref]
+impl.sync.static.ref.args = [statics.array, ref]
 impl.sync.static.ref.ret = rows
 
 

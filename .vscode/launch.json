@@ -58,13 +58,11 @@
     },
     {
       "name": "Launch dev.sap.cap",
-      "command": "sudo -E $(which node) $(pwd)/node_modules/.bin/cds-serve",
+      "command": "HOST=$(ip addr show eth0 | grep -oP '\\d+\\.\\d+\\.\\d+\\.\\d+' | head -n 1) HOST6=$(ip addr show eth0 | grep global | grep -oP '[\\w:]*:[\\w:]+' | head -n 1) sudo -E $(which node) $(pwd)/node_modules/.bin/cds-serve",
       "request": "launch",
       "type": "node-terminal",
       "env": {
         "PORT": "443",
-        "HOST": "172.28.218.112",
-        "HOST6": "fd14:c9c1:a1a7:1::aaaa",
         "NODE_EXTRA_CA_CERTS": "${workspaceFolder}/ssl/ca/ca.crt",
         "CF_INSTANCE_CERT": "${workspaceFolder}/ssl/servers/dev.sap.cap.crt",
         "CF_INSTANCE_KEY": "${workspaceFolder}/ssl/servers/dev.sap.cap.key",

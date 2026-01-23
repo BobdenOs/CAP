@@ -23,6 +23,11 @@
       sap.ushell.Container.createRenderer().placeAt("content")
     })
   </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register("web/main.mjs", { type: 'module' })
+    }
+  </script>
 </head>
 
 <body class="sapUiBody" id="content">

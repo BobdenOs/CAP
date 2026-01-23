@@ -90,4 +90,7 @@ module.exports = class DBService extends cds.ApplicationService {
   url4(tenant) {
     return 'sap.cap.db'
   }
+
+  // REVISIT: used by `@sap/cds-compiler` to identify old database services
+  static includes () { return false }
 }

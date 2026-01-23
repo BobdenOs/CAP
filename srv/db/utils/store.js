@@ -158,14 +158,14 @@ class Store {
     if (!this._chunks) {
       const list = []
       this._chunks = new Promise((resolve, reject) => {
-        setImmediate(async () => {
+        setTimeout(async () => {
           try {
             const fs = await this.srv.fs
             this._chunks = undefined
             const ret = fs.read`${fs.entities.chunks}[file.name in ${{ list }}]`
             resolve(ret)
           } catch (err) { reject(err) }
-        })
+        }, 0)
       })
       this._chunks.list = list
     }

@@ -2,13 +2,13 @@ const { pipeline } = require('stream/promises')
 
 const cds = require("@sap/cds");
 const cqn4sql = require("@cap-js/db-service/lib/cqn4sql");
-const { error } = require('console');
 const { Readable } = require('stream');
 
 const LOG = cds.log('fs')
 
 module.exports = class FSService extends cds.ApplicationService {
   async init() {
+    if (cds.requires?.[this.name]?.impl) delete cds.requires[this.name].impl // impl has to be defined for offline mode
     this._store = {
       index: {},
     };

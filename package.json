@@ -10,6 +10,7 @@
     "@sap-cloud-sdk/resilience": "^4.1.2",
     "@sap/cds": "^9",
     "express": "^4",
+    "tar": "^7.5.2",
     "undici": "^7.16.0"
   },
   "bin": {

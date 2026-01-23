@@ -1,4 +1,4 @@
-const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const { types, statics, ref, rows, rowsAsync } = require('../xpr/types.js')
 
 const impl = {}
 impl.ref = function (column, where) {

@@ -1,4 +1,4 @@
-const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const { types, statics, ref, rows, rowsAsync } = require('../xpr/types.js')
 
 const names = []
 const operators = ['and', 'AND']
@@ -26,14 +26,14 @@ impl.sync.rows.rows.static = async function (a, b) {
   return a()
 }
 
-impl.sync.rows.rows.static.args = [rows, static.unknown]
+impl.sync.rows.rows.static.args = [rows, statics.unknown]
 impl.sync.rows.rows.static.ret = rows
 
 impl.sync.rows.static.rows = async function (a, b) {
   return impl.sync.rows.rows.static(b, a)
 }
 
-impl.sync.rows.static.rows.args = [static.unknown, rows]
+impl.sync.rows.static.rows.args = [statics.unknown, rows]
 impl.sync.rows.static.rows.ret = rows
 
 

@@ -21,7 +21,8 @@ module.exports = class APPService extends cds.ApplicationService {
     this.on(["UPDATE"], this.onUPDATE);
 
     const fioriConfig = '/appconfig/fioriSandboxConfig.json'
-    const rootStatic = express.static(cds.utils.path.resolve(cds.root, 'app'))
+    const rootStaticDir = cds.utils.path.resolve(cds.root, 'app')
+    const rootStatic = express.static(rootStaticDir)
     cds.app.use('/', async (req, res, next) => {
       const host = req.hostname
       let app
@@ -45,7 +46,67 @@ module.exports = class APPService extends cds.ApplicationService {
           return next(err)
         }
       }
-      return rootStatic(req, res, next)
+
+      return rootStatic(req, res, (err) => {
+        if (req.path.startsWith('/web/') && !req.path.startsWith('/web/node/')) {
+          try {
+            const file = process.cwd() + req.path.slice(4)
+            const source = cds.utils.fs.readFileSync(file, 'utf-8')
+            const resolve = require('node:module').createRequire(file).resolve
+            const requires = {}
+            let imports = 0
+            let transform = source
+            transform = transform.replace(/^#!.*/, '')
+            // transform = transform.replace(/const +(\w*) *= *require *\( *?['"](.*?)['"] *?\)(\n|,|;)/g, (original, name, path, newline) => {
+            //   try {
+            //     requires[resolve(path, module, false)] ??= name
+            //     return newline === ',' ? 'const ' : ''
+            //   } catch (err) {
+            //     return original
+            //   }
+            // })
+            transform = transform.replace(/(?:lazyload|require) *\( *?['"](.*?)['"] *?\)/g, (_, path) => {
+              try {
+                path = resolve(path)
+                return `__IMPORT_${(requires[path] ??= imports++)}__${path.startsWith(cds.root) ? '()' : ''}`
+              } catch {
+                return `({})`
+              }
+            })
+
+            switch (cds.utils.path.extname(file)) {
+              case '.json': transform = `export default function() {return ${transform}\n}`
+                break
+              case '.cjs':
+              case '.js': transform = `
+const require = function() {throw Object.assign(new Error('require in browser'),{code:'MODULE_NOT_FOUND'})}
+require.resolve = function(id) { 
+  if(id[0] === '.') return new URL(id, import.meta.url).pathname
+  throw Object.assign(new Error('require.resolve in browser'),{ code: 'MODULE_NOT_FOUND' }) 
+}
+export default (function(exports, module, require, __dirname,__filename) {
+if(module.__loaded__) { return module.exports }
+module.__loaded__ = true
+module.exports = exports;
+${transform}
+return module.exports
+}).bind(globalThis,{},{},require,new URL('.', import.meta.url).pathname,new URL('', import.meta.url).pathname)`
+                break;
+            }
+            for (const path in requires) {
+              transform = `import __IMPORT_${requires[path]}__ from '${path.startsWith(cds.root) ? `/web${path.slice(cds.root.length)}` : `/web/node/${path.replace('node:', '')}.mjs`}'\n${transform}`
+            }
+            res.set('content-type', 'application/javascript')
+            res.end(transform)
+            return
+          } catch (err) {
+            req
+            res.sendStatus(404)
+          }
+        }
+
+        next(err)
+      })
     })
 
     cds.on('listening', () => this._loadApps())

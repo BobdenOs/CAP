@@ -1,11 +1,11 @@
-const { types, static, ref, rows, rowsAsync } = require('../xpr/types.js')
+const { types, statics, ref, rows, rowsAsync } = require('../xpr/types.js')
 
 const impl = {}
 impl.static = function (entity, where) {
   return true
 }
 impl.static.args = [ref]
-impl.static.ret = static.unknown
+impl.static.ret = statics.unknown
 
 impl.ref = function (entity, where) {
   return src

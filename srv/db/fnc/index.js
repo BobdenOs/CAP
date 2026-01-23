@@ -1,13 +1,16 @@
-const fs = require('node:fs')
-
-const funcs = fs.readdirSync(__dirname)
+// keeping it simple for browser support
+const funcs = [
+  require('./and.js'),
+  require('./eq.js'),
+  require('./in.js'),
+  require('./or.js'),
+  require('./pipe.js'),
+  // ...
+]
 
 const operators = {}
 const functions = {}
-for (const func of funcs) {
-  if (func === 'index.js') continue // ignore self
-  const fn = require('./' + func)
-
+for (const fn of funcs) {
   if (fn.operators?.[0]) function_name(fn.operators[0], fn.apis)
   for (const operator of (fn.operators || [])) {
     operators[operator] = fn.apis

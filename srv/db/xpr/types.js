@@ -1,6 +1,5 @@
 const cds = require('@sap/cds')
 
-
 const {
   scalar: unknown,
   any,
@@ -36,9 +35,9 @@ for (const type in types) {
 }
 
 /** @type {types} */
-const static = {}
+const statics = {}
 for (const type in types) {
-  static[type] = class staticType extends types[type] {
+  statics[type] = class staticType extends types[type] {
     static = true
   }
 }
@@ -74,7 +73,7 @@ class rowsAsync extends rows {
 }
 
 module.exports.types = types
-module.exports.static = static
+module.exports.statics = statics
 module.exports.ref = ref
 module.exports.rows = rows
 module.exports.rowsAsync = rowsAsync
