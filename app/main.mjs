@@ -6,16 +6,26 @@ import db from '/web/node_modules/@cap-community/cap/srv/db/index.js'
 import app from '/web/node_modules/@cap-community/cap/srv/app/index.js'
 import trc from '/web/node_modules/@cap-community/cap/srv/trc/index.js'
 
+import odata from '/web/node_modules/@sap/cds/libx/odata/ODataAdapter.js'
+
+const endpoints = []
+
 async function start() {
 
   const global = globalThis.global = globalThis
 
   const modelFiles = [
-    '/web/node_modules/@sap/cds/common.cds',
+    '/web/srv/index.cds',
+    '/web/node_modules/@sap/cds/srv/outbox.cds',
     '/web/srv/fs/index.cds',
     '/web/srv/db/index.cds',
     '/web/srv/app/index.cds',
+    '/web/app/app.cds',
+    '/web/app/trc/ui.cds',
+    '/web/app/sys/ui.cds',
     '/web/srv/trc/index.cds',
+    '/web/srv/dns/index.cds',
+    '/web/node_modules/@sap/cds/common.cds',
   ]
 
   caches.open('CAP_CACHE').then(cache => cache.addAll(modelFiles))
@@ -38,7 +48,7 @@ async function start() {
   }
 
   cds.env.ssl = {
-    names: [location.hostname], //cert, key, ca,
+    names: ['offline.' + location.hostname], //cert, key, ca,
     A: [], AAAA: [],
   }
 
@@ -52,18 +62,38 @@ async function start() {
     db: { impl: db() },
   })
 
-  cds.connect.to('sap.cap.fs').then(async srv => {
-    const files = await srv.run(cds.ql`SELECT owner, name, dataType FROM sap.cap.fs.files`)
-    debugger
-  })
-    .catch(err => { debugger })
+  await cds.connect.to('sap.cap.fs')
+  await cds.connect.to('sap.cap.trc')
+  await cds.connect.to('sap.cap.db')
+
+  const protOData = odata()
+  const protocols = {
+    'odata': protOData,
+    'odata-v4': protOData,
+  }
+
+  for (const service of cds.services) {
+    for (const endpoint of service.endpoints) {
+      // TODO: come up with a good way to enable protocol adapter implementation
+      endpoints.push({
+        path: endpoint.path,
+        adapter: new protocols[endpoint.kind](service, { prefix: endpoint.path }),
+      })
+    }
+  }
+
 }
 
 self.addEventListener('install', event => event.waitUntil(start()))
 
 self.addEventListener('fetch', event => {
+
+
   event.respondWith(
-    caches.match(event.request).then(response => {
+    caches.match(event.request).then(async response => {
+      const url = new URL(event.request.url)
+      const prot = endpoints.find(prefix => url.pathname.startsWith(prefix.path))
+      if (prot) return prot.adapter.router(event.request)
       return response || fetch(event.request)
     })
   )

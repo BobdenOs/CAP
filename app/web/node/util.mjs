@@ -1,3 +1,8 @@
+function format(format, ...data) {
+  // TODO: if we care for it
+  return format
+}
+
 function formatWithOptions(options, format, ...data) {
   // TODO: if we care for it
   return format
@@ -29,6 +34,7 @@ function inherits(ctor, superCtor) {
 }
 
 export default {
+  format,
   formatWithOptions,
   inspect,
   inherits,

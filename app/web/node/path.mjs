@@ -11,10 +11,14 @@ export const parse = function (path) {
   const name = base.slice(0, extSplit)
   return { root, dir, base, ext, name }
 }
-export const join = function (...args) {
+
+export function join(...args) {
   return args.join(sep)
 }
-export const extname = function (path) {
+export function dirname(path) {
+  return parse(path).dir
+}
+export function extname(path) {
   return parse(path).ext
 }
 
@@ -22,5 +26,6 @@ export default {
   resolve,
   parse,
   join,
+  dirname,
   extname,
 }

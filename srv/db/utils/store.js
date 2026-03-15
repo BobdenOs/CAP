@@ -1,8 +1,7 @@
-const { PassThrough } = require('stream')
+const { PassThrough, Readable } = require('node:stream')
 const { hash } = require('node:crypto')
 
 const cds = require('@sap/cds')
-const { Readable } = require('node:stream')
 
 const NULL = (2n ** 64n) - 1n
 const COL_HEADER_SIZE = 32n
@@ -57,10 +56,10 @@ class Store {
   }
 
   timestamp(row) {
-    if (Buffer.isBuffer(row)) return row.readBigUint64LE(16)
+    if (Buffer.isBuffer(row)) return readBigUint64LE(row, 16)
   }
 
-  rowID(row, keys = this.definition.keys) {
+  async rowID(row, keys = this.definition.keys) {
     if (Buffer.isBuffer(row)) return row.subarray(0, 16)
     const k = Object.keys(keys)
     if (k.length === 1 && keys[k[0]] instanceof cds.builtin.classes.UUID) {
@@ -69,7 +68,9 @@ class Store {
     }
     let compound = ''
     for (const key in keys) compound = `${compound};${row[key] == null ? '' : `${`${row[key]}`.length}${row[key]}`}`
-    return hash('shake128', compound, 'buffer')
+
+    // REVISIT: figure out how to use sha-256 as it is supported in the browser
+    return (await hash('SHA-256', compound, 'buffer')).subarray(0, 16)
   }
 
   async update(rowss) {
@@ -121,9 +122,9 @@ class Store {
     const timestamp = BigInt(Date.now())
 
     for await (const row of rows) {
-      const rowID = this.rowID(row)
+      const rowID = await this.rowID(row)
       for (const col of columns) {
-        let val = col.extract(row)
+        let val = await col.extract(row)
         if (val === undefined) continue
         if (Buffer.isBuffer(val)) val = val.toString('hex')
         const data = Buffer.from(JSON.stringify(val ?? null))
@@ -202,8 +203,9 @@ class Store {
               break
             }
             start = offset
-            rowID = chunk.subarray(offset, offset + 16).toString('base64')
-            data.push(chunk.subarray(offset, offset + 16))
+            const rowIDArray = chunk.subarray(offset, offset + 16)
+            rowID = rowIDArray.toString('base64')
+            data.push(rowIDArray)
             offset += 16
           }
           if (dataTimestamp == null) {
@@ -221,7 +223,7 @@ class Store {
               break
             }
             data.push(chunk.subarray(offset, offset + 8))
-            length = chunk.readBigUint64LE(offset)
+            length = readBigUint64LE(chunk, offset)
             offset += 8
             read = 0n
           }
@@ -266,6 +268,11 @@ class Store {
     return rows
   }
 
+}
+
+function readBigUint64LE(array, index) {
+  return array.readBigUint64LE?.(index)
+    ?? BigInt('0x' + [...array.subarray(index, index + 8)].reduce((l, n) => n.toString(16).padStart(2, '0') + l, ''))
 }
 
 module.exports = Store

@@ -20,11 +20,11 @@ impl.sync.ref.rows = async function (ref, rows) {
 
   let rowIDs = {}
   rows = await rows()
-  for (const row of rows) rowIDs[store.rowID(row).toString('base64')] = true
+  for (const row of rows) rowIDs[(await store.rowID(row)).toString('base64')] = true
 
   const matches = []
-  await store.read_col(ref.name, (row) => {
-    const rowID = store.rowID(row).toString('base64')
+  await store.read_col(ref.name, async (row) => {
+    const rowID = (await store.rowID(row)).toString('base64')
     if (rowIDs[rowID]) matches.push(row)
   })
   return matches
