@@ -155,8 +155,8 @@ if (require.main === module) {
     })
     .then(() => walkImports('main.mjs'))
     .then(async () => {
-      const files = (await cds.utils.fs.promises.readdir(distDir, { recursive: true, withFileTypes: true })).map(f => f.isFile() && `${f.parentPath.slice(distDir.length)}/${f.name}`).filter(a => a)
-      files.unshift('/')
+      const files = (await cds.utils.fs.promises.readdir(distDir, { recursive: true, withFileTypes: true })).map(f => f.isFile() && `.${f.parentPath.slice(distDir.length)}/${f.name}`).filter(a => a)
+      // files.unshift('/')
       await cds.utils.fs.promises.writeFile(cds.utils.path.resolve(distDir, 'cache.js'), `export default ${JSON.stringify(files, null, 2)}`)
     })
 }

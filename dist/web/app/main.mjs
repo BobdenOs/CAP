@@ -19,18 +19,18 @@ async function activate() {
   const global = globalThis.global = globalThis
 
   const modelFiles = [
-    '/web/srv/index.cds',
-    '/web/node_modules/@sap/cds/srv/outbox.cds',
-    '/web/srv/fs/index.cds',
-    '/web/srv/db/index.cds',
-    '/web/srv/app/index.cds',
-    '/web/app/app.cds',
-    '/web/app/trc/ui.cds',
-    '/web/app/sys/ui.cds',
-    '/web/app/app/ui.cds',
-    '/web/srv/trc/index.cds',
-    '/web/srv/dns/index.cds',
-    '/web/node_modules/@sap/cds/common.cds',
+    './web/srv/index.cds',
+    './web/node_modules/@sap/cds/srv/outbox.cds',
+    './web/srv/fs/index.cds',
+    './web/srv/db/index.cds',
+    './web/srv/app/index.cds',
+    './web/app/app.cds',
+    './web/app/trc/ui.cds',
+    './web/app/sys/ui.cds',
+    './web/app/app/ui.cds',
+    './web/srv/trc/index.cds',
+    './web/srv/dns/index.cds',
+    './web/node_modules/@sap/cds/common.cds',
   ]
 
   const model = (await Promise.all(
