@@ -118,7 +118,15 @@ if (require.main === module) {
     await cds.utils.fs.promises.mkdir(cds.utils.path.dirname(distFile), { recursive: true })
     await cds.utils.fs.promises.writeFile(
       ensureJS(distFile),
-      `${content}`.replace(/^(import.*from.*)'(.*)'(.*)$/gm, (_, a, b, c) => `${a}'${ensureJS(b)}'${c}`),
+      `${content}`.replace(/^(import.*from.*)'(.*)'(.*)$/gm, (_, a, b, c) => {
+        b = ensureJS(b)
+        if (b[0] === '/') {
+          b = '.' + b
+          b = cds.utils.path.resolve(distDir, b)
+          b = cds.utils.path.relative(cds.utils.path.dirname(distFile), b)
+        }
+        return `${a}'${b}'${c}`
+      }),
     )
 
     console.log(file)

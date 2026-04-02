@@ -1,6 +1,6 @@
-import __IMPORT_2__ from '/web/node_modules/@sap/cds/lib/index.js'
-import __IMPORT_1__ from '/web/node/crypto.mjs'
-import __IMPORT_0__ from '/web/node/stream.mjs'
+import __IMPORT_2__ from '../../../node_modules/@sap/cds/lib/index.js'
+import __IMPORT_1__ from '../../../node/crypto.mjs'
+import __IMPORT_0__ from '../../../node/stream.mjs'
 
 const require = function() {throw Object.assign(new Error('require in browser'),{code:'MODULE_NOT_FOUND'})}
 require.resolve = function(id) { 
