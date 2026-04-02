@@ -34,7 +34,7 @@ async function activate() {
   ]
 
   const model = (await Promise.all(
-    modelFiles.map(url => caches.match(new Request(url)).then(async response => ({ [url]: await response.text() })))
+    modelFiles.map(url => caches.match(new Request(url)).then(async response => ({ [import.meta.resolve(url)]: await response.text() })))
   ))
     .reduce((l, c) => Object.assign(l, c), {})
 
