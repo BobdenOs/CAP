@@ -11,7 +11,7 @@
     },
     "dataSources": {
       "app": {
-        "uri": "/odata/v4/app/",
+        "uri": "../../../odata/v4/app/",
         "type": "OData",
         "settings": {
           "odataVersion": "4.0"

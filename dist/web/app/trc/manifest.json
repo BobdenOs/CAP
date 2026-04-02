@@ -11,7 +11,7 @@
     },
     "dataSources": {
       "trc": {
-        "uri": "/odata/v4/trc/",
+        "uri": "../../../odata/v4/trc/",
         "type": "OData",
         "settings": {
           "odataVersion": "4.0"
