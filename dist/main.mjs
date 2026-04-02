@@ -97,7 +97,10 @@ self.addEventListener('fetch', event => {
         for (const endpoint of service.endpoints) {
           if (pathname.startsWith(endpoint.path)) {
             if (app) cds.db = app.db
-            const prot = endpoint.adapter ??= new cds.service.protocols[endpoint.kind].impl(service, { prefix: endpoint.path })
+            const prot = endpoint.adapter ??= new cds.service.protocols[endpoint.kind].impl(
+              service,
+              { prefix: import.meta.resolve('./').replace(import.meta.resolve('/'), '/') + endpoint.path },
+            )
             return prot.router(event.request)
           }
         }
