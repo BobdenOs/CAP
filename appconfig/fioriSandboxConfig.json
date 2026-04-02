@@ -27,21 +27,21 @@
       "description": "System Overview",
       "additionalInformation": "SAPUI5.Component=sys",
       "applicationType": "URL",
-      "url": "/sys"
+      "url": "./web/app/sys"
     },
     "traces-display": {
       "title": "Traces Overview",
       "description": "Traces Overview",
       "additionalInformation": "SAPUI5.Component=trc",
       "applicationType": "URL",
-      "url": "/trc"
+      "url": "./web/app/trc"
     },
     "applications-display": {
       "title": "Applications Overview",
       "description": "Applications Overview",
       "additionalInformation": "SAPUI5.Component=app",
       "applicationType": "URL",
-      "url": "/app"
+      "url": "./web/app/app"
     }
   }
 }
