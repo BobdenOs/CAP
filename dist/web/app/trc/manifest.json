@@ -1,0 +1,150 @@
+{
+  "_version": "1.28.0",
+  "sap.app": {
+    "id": "traces",
+    "type": "application",
+    "title": "Traces",
+    "description": "Traces dashboard",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "dataSources": {
+      "trc": {
+        "uri": "/odata/v4/trc/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "intent1": {
+          "signature": {
+            "parameters": {
+              "domain": {
+                "renameTo": "domain"
+              }
+            },
+            "additionalParameters": "ignored"
+          },
+          "semanticObject": "traces",
+          "action": "display",
+          "title": "{{appTitle}}",
+          "info": "{{appInfo}}",
+          "subTitle": "{{appSubTitle}}",
+          "icon": "sap-icon://past",
+          "indicatorDataSource": {
+            "dataSource": "trc",
+            "path": "traces/$count",
+            "refresh": 1800
+          }
+        }
+      }
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.81.0",
+      "libs": {
+        "sap.fe.templates": {}
+      }
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties"
+      },
+      "": {
+        "dataSource": "trc",
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true,
+          "groupProperties": {
+            "default": {
+              "submit": "Auto"
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "routes": [
+        {
+          "pattern": ":?query:",
+          "name": "tracesList",
+          "target": "tracesList"
+        },
+        {
+          "pattern": "traces({key}):?query:",
+          "name": "traceDetails",
+          "target": "traceDetails"
+        }
+      ],
+      "targets": {
+        "tracesList": {
+          "type": "Component",
+          "id": "tracesList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "entitySet": "traces",
+              "initialLoad": false,
+              "navigation": {
+                "traces": {
+                  "detail": {
+                    "route": "traceDetails"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "traceDetails": {
+          "type": "Component",
+          "id": "traceDetails",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "content": {
+                "body": {
+                  "sections": {
+                    "customSection": {
+                      "template": "trc.custom.GanttTraces",
+                      "title": "{i18n>ganttTraces}",
+                      "position": {
+                        "placement": "After",
+                        "anchor": "traceDetails"
+                      }
+                    }
+                  }
+                }
+              },
+              "entitySet": "traces"
+            }
+          }
+        }
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "fullWidth": true,
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "_version": "1.28.0",
+  "sap.app": {
+    "id": "system",
+    "type": "application",
+    "title": "System",
+    "description": "System dashboard",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "dataSources": {
+      "dns": {
+        "uri": "/odata/v4/dns/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "intent1": {
+          "semanticObject": "system",
+          "action": "system-overview",
+          "icon": "sap-icon://past"
+        }
+      }
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.81.0",
+      "libs": {
+        "sap.m": {
+          "lazy": false
+        },
+        "sap.ui.core": {
+          "lazy": false
+        },
+        "sap.ushell": {
+          "lazy": false
+        },
+        "sap.f": {
+          "lazy": false
+        },
+        "sap.ui.comp": {
+          "lazy": false
+        },
+        "sap.ui.generic.app": {
+          "lazy": false
+        },
+        "sap.suite.ui.generic.template": {
+          "lazy": false
+        },
+        "sap.ovp": {
+          "lazy": false
+        },
+        "sap.ui.rta": {
+          "lazy": false
+        },
+        "sap.ui.layout": {
+          "lazy": false
+        },
+        "sap.suite.ui.commons": {
+          "lazy": false
+        }
+      }
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties"
+      },
+      "": {
+        "dataSource": "dns",
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true,
+          "groupProperties": {
+            "default": {
+              "submit": "Auto"
+            }
+          }
+        }
+      },
+      "mainModel": {
+        "dataSource": "dns",
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true,
+          "groupProperties": {
+            "default": {
+              "submit": "Auto"
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "routes": [],
+      "targets": {}
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    }
+  },
+  "sap.ovp": {
+    "globalFilterModel": "mainModel",
+    "globalFilterEntityType": "A",
+    "containerLayout": "resizable",
+    "enableLiveFilter": false,
+    "considerAnalyticalParameters": true,
+    "disableTableCardFlexibility": true,
+    "cards": {
+      "A": {
+        "model": "mainModel",
+        "template": "sap.ovp.cards.v4.table",
+        "addODataSelect": true,
+        "defaultSpan": {
+          "rows": 5,
+          "cols": 5
+        },
+        "settings": {
+          "title": "V4",
+          "subTitle": "V4 Addresses",
+          "listFlavor": "bar",
+          "listType": "extended",
+          "entitySet": "A",
+          "annotationPath": "com.sap.vocabularies.UI.v1.LineItem#OverviewCard"
+        }
+      },
+      "AAAA": {
+        "model": "mainModel",
+        "template": "sap.ovp.cards.v4.table",
+        "addODataSelect": true,
+        "defaultSpan": {
+          "rows": 5,
+          "cols": 1
+        },
+        "settings": {
+          "title": "V6",
+          "subTitle": "V6 Addresses",
+          "listFlavor": "bar",
+          "listType": "extended",
+          "entitySet": "AAAA",
+          "annotationPath": "com.sap.vocabularies.UI.v1.LineItem#OverviewCard"
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "fullWidth": true,
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  }
+}

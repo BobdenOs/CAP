@@ -1,0 +1,136 @@
+{
+  "_version": "1.28.0",
+  "sap.app": {
+    "id": "application",
+    "type": "application",
+    "title": "Applications",
+    "description": "Applications dashboard",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "dataSources": {
+      "app": {
+        "uri": "/odata/v4/app/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "intent1": {
+          "signature": {
+            "parameters": {
+              "domain": {
+                "renameTo": "domain"
+              }
+            },
+            "additionalParameters": "ignored"
+          },
+          "semanticObject": "applications",
+          "action": "display",
+          "title": "{{appTitle}}",
+          "info": "{{appInfo}}",
+          "subTitle": "{{appSubTitle}}",
+          "icon": "sap-icon://past",
+          "indicatorDataSource": {
+            "dataSource": "app",
+            "path": "applications/$count",
+            "refresh": 1800
+          }
+        }
+      }
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.81.0",
+      "libs": {
+        "sap.fe.templates": {}
+      }
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties"
+      },
+      "": {
+        "dataSource": "app",
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true,
+          "groupProperties": {
+            "default": {
+              "submit": "Auto"
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "routes": [
+        {
+          "pattern": ":?query:",
+          "name": "applicationsList",
+          "target": "applicationsList"
+        },
+        {
+          "pattern": "applications({key}):?query:",
+          "name": "applicationsDetails",
+          "target": "applicationsDetails"
+        }
+      ],
+      "targets": {
+        "applicationsList": {
+          "type": "Component",
+          "id": "applicationsList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "entitySet": "applications",
+              "initialLoad": false,
+              "navigation": {
+                "applications": {
+                  "detail": {
+                    "route": "applicationsDetails"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "applicationsDetails": {
+          "type": "Component",
+          "id": "applicationsDetails",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "entitySet": "applications"
+            }
+          }
+        }
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "fullWidth": true,
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  }
+}
