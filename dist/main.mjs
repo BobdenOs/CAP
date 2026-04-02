@@ -87,7 +87,7 @@ self.addEventListener('activate', event => event.waitUntil(activate()))
 self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(async response => {
-      const pathname = event.request.url.replace(import.meta.resolve('./'), '')
+      const pathname = event.request.url.replace(import.meta.resolve('./'), '/')
 
       // handle request with cds services when defined
       const app = cds.services['sap.cap.app']?.apps[/\/apps\/([^/]*)\//.exec(event.request.referrer)?.[1]]
