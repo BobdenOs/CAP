@@ -1,15 +1,15 @@
-import load_cds from 'web/node_modules/@sap/cds/lib/index.js'
-import remote from 'web/node_modules/@sap/cds/srv/remote-service.js'
+import load_cds from './web/node_modules/@sap/cds/lib/index.js'
+import remote from './web/node_modules/@sap/cds/srv/remote-service.js'
 
-import fs from 'web/node_modules/@cap-community/cap/srv/fs/index.js'
-import db from 'web/node_modules/@cap-community/cap/srv/db/index.js'
-import app from 'web/node_modules/@cap-community/cap/srv/app/index.js'
-import trc from 'web/node_modules/@cap-community/cap/srv/trc/index.js'
+import fs from './web/node_modules/@cap-community/cap/srv/fs/index.js'
+import db from './web/node_modules/@cap-community/cap/srv/db/index.js'
+import app from './web/node_modules/@cap-community/cap/srv/app/index.js'
+import trc from './web/node_modules/@cap-community/cap/srv/trc/index.js'
 
-import odata from 'web/node_modules/@sap/cds/libx/odata/ODataAdapter.js'
-import appService from 'web/node_modules/@sap/cds/srv/app-service.js'
+import odata from './web/node_modules/@sap/cds/libx/odata/ODataAdapter.js'
+import appService from './web/node_modules/@sap/cds/srv/app-service.js'
 
-import cacheFiles from 'cache.js'
+import cacheFiles from './cache.js'
 
 async function install() {
   caches.open('CAP_CACHE').then(cache => cache.addAll(cacheFiles))

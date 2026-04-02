@@ -1,6 +1,6 @@
-import __IMPORT_4__ from 'col.js'
-import __IMPORT_3__ from 'src.js'
-import __IMPORT_2__ from 'types.js'
+import __IMPORT_4__ from './col.js'
+import __IMPORT_3__ from './src.js'
+import __IMPORT_2__ from './types.js'
 import __IMPORT_1__ from '../fnc/index.js'
 import __IMPORT_0__ from '../../../node/stream.mjs'
 

@@ -1,8 +1,8 @@
-import __IMPORT_4__ from 'pipe.js'
-import __IMPORT_3__ from 'or.js'
-import __IMPORT_2__ from 'in.js'
-import __IMPORT_1__ from 'eq.js'
-import __IMPORT_0__ from 'and.js'
+import __IMPORT_4__ from './pipe.js'
+import __IMPORT_3__ from './or.js'
+import __IMPORT_2__ from './in.js'
+import __IMPORT_1__ from './eq.js'
+import __IMPORT_0__ from './and.js'
 
 const require = function() {throw Object.assign(new Error('require in browser'),{code:'MODULE_NOT_FOUND'})}
 require.resolve = function(id) { 

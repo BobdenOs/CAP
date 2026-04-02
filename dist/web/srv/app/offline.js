@@ -124,6 +124,7 @@ if (require.main === module) {
           b = '.' + b
           b = cds.utils.path.resolve(distDir, b)
           b = cds.utils.path.relative(cds.utils.path.dirname(distFile), b)
+          if (b[0] !== '.') b = './' + b
         }
         return `${a}'${b}'${c}`
       }),
