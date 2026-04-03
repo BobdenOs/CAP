@@ -9,6 +9,14 @@ export class Readable extends ReadableStream {
     return ret
   }
 
+  static toWeb(stream) {
+    return stream // no-op as all streams are already ReadableStream
+  }
+
+  static fromWeb(stream) {
+    return Readable.from(stream)
+  }
+
   async pipe(target) {
     for await (const chunk of this) target.write(chunk)
     target.end()

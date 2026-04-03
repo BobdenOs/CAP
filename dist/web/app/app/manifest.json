@@ -99,6 +99,24 @@
                     "route": "applicationsDetails"
                   }
                 }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "actions": {
+                    "MenuActions": {
+                      "text": "{i18n>upload}",
+                      "menu": [
+                        "uploadTar"
+                      ]
+                    },
+                    "uploadTar": {
+                      "press": "app.Component.uploadTar",
+                      "enabled": true,
+                      "visible": true,
+                      "text": "{i18n>tar}"
+                    }
+                  }
+                }
               }
             }
           }

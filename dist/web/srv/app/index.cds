@@ -6,7 +6,7 @@ service app {
   entity applications {
     key name    : String(5000);
         port    : Integer;
-        state   : String enum {
+        status   : String enum {
           deploying;
           upgrading;
           running;

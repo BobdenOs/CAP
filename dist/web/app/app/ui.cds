@@ -24,7 +24,7 @@ annotate applications with @(
         @HTML5.CssDefaults: {width: 'auto'},
       },
       {
-        Value             : (state),
+        Value             : (status),
         @HTML5.CssDefaults: {width: '140px'}
       }
     ],
@@ -37,7 +37,7 @@ annotate applications with @(
       },
       {
         $Type: 'UI.DataField',
-        Value: state
+        Value: status
       }
     ],
   }

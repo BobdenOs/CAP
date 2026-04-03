@@ -87,6 +87,9 @@ self.addEventListener('activate', event => event.waitUntil(activate()))
 self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(async response => {
+      if (response) return response
+      if (typeof cds === 'undefined') await activate()
+
       const pathname = event.request.url.replace(import.meta.resolve('./'), '/')
 
       // handle request with cds services when defined
