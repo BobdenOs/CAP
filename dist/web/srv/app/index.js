@@ -129,7 +129,7 @@ module.exports = class APPService extends cds.ApplicationService {
           .reduce((l, c) => Object.assign(l, c))
 
         const commons = [
-          '/web/node_modules/@sap/cds/common.cds'
+          './web/node_modules/@sap/cds/common.cds'
         ]
         Object.assign(cdsContent,
           (await Promise.all(
