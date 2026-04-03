@@ -90,7 +90,7 @@ self.addEventListener('fetch', event => {
       if (response) return response
       if (typeof cds === 'undefined') await activate()
 
-      const pathname = event.request.url.replace(import.meta.resolve('./'), '/').replace(import.meta.resolve('/'),'/')
+      const pathname = event.request.url.replace(import.meta.resolve('./'), '/').replace(import.meta.resolve('/'), '/')
 
       // handle request with cds services when defined
       const app = cds.services['sap.cap.app']?.apps[/\/apps\/([^/]*)\//.exec(event.request.referrer)?.[1]]
@@ -102,7 +102,12 @@ self.addEventListener('fetch', event => {
             if (app) cds.db = app.db
             const prot = endpoint.adapter ??= new cds.service.protocols[endpoint.kind].impl(
               service,
-              { prefix: import.meta.resolve('./').replace(import.meta.resolve('/'), '/').slice(0, -1) + endpoint.path },
+              {
+                prefixes: [
+                  import.meta.resolve('./').replace(import.meta.resolve('/'), '/').slice(0, -1) + endpoint.path,
+                  endpoint.path,
+                ]
+              },
             )
             return prot.router(event.request)
           }
