@@ -76,12 +76,14 @@ class Tracer {
   }
 
   end(trace) {
-    cds.context._stack.splice(cds.context._stack.findIndex(trc => trc === trace), 1)
     const end = {
       ID: trace.ID,
       end: new Date(),
     }
-    cds.context._stack_all.push(end)
+    if (cds?.context?._stack) {
+      cds.context._stack.splice(cds.context._stack.findIndex(trc => trc === trace), 1)
+      cds.context._stack_all.push(end)
+    }
     this.buffer.push(end)
   }
 }
@@ -144,7 +146,7 @@ function self(traces) {
 }
 
 // trace render function usable also in the browser dev tools
-const render = function (rows) {
+function render(rows) {
   const colors = ['lightblue', 'lightgreen', 'orange', 'lightgray']
   const servers = {}
   const limits = rows.reduce((l, c) => {
@@ -164,11 +166,22 @@ const render = function (rows) {
     const end = new Date(row.end).getTime()
     const l = start - limits.min
     const r = end - limits.min
-    return `%c[${(row.domain || '').padStart(limits.domain, ' ')}] ${(row.name || '').padEnd(limits.name, ' ')} (${`${(r - l) >>> 0}`.padStart(5, ' ')} ms) | ${''.padStart((l * limits.scale) >>> 0, ' ')}${'='.padStart(((r - l) * limits.scale) >>> 0, '=')}`
+    return `%c[${(row.domain || '').padStart(limits.domain, ' ')}] ${(row.name || '').padEnd(limits.name, ' ')} (${`${Math.max(0, r - l) >>> 0}`.padStart(5, ' ')} ms) | ${''.padStart(l * limits.scale, ' ')}${'='.padStart((r - l) * limits.scale, '=')}`
   }).join('\n'), ...rows.map(row => {
     return `color: ${servers[row.domain + ':' + row.server]};`
   }))
 }
+
+function render_groups(rows) {
+  const groups = rows.reduce((groups, cur) => {
+    (groups[cur.correlation] ??= []).push(cur)
+    return groups
+  }, {})
+
+  for (const correlation in groups) try { render(groups[correlation]) } catch { }
+}
+
+globalThis.render_groups = render_groups
 
 // const groups = JSON.parse(document.body.innerText).value.reduce((groups, cur) => {
 //     (groups[cur.correlation] ??= []).push(cur)

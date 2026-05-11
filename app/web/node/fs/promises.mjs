@@ -1,4 +1,7 @@
+import { createReadStream } from '../fs.mjs'
+
 async function _dir(dir) {
+  if (dir instanceof FileSystemHandle) return dir
   const dirs = Array.isArray(dir) ? dir : dir.split('/')
 
   let dirHandle = await navigator.storage.getDirectory()
@@ -10,14 +13,21 @@ async function _dir(dir) {
   return dirHandle
 }
 
-async function readdir(dir) {
+async function readdir(dir, options) {
   const dirHandle = await _dir(dir)
 
   const ret = []
-  for await (const [key] of dirHandle) {
+  for await (const [key, value] of dirHandle) {
     ret.push(key)
+    if (options?.recursive && value.kind === 'directory') ret.push(...(await readdir(value, options)).map(r => key + '/' + r))
   }
   return ret
+}
+
+async function readFile(path) {
+  let data = ''
+  for await (const chunk of createReadStream(path)) data = `${data}${chunk}`
+  return data
 }
 
 async function mkdir(dir) {
@@ -25,7 +35,17 @@ async function mkdir(dir) {
   await _dir(dir)
 }
 
+async function unlink(file) {
+  if (typeof file === 'object') return file
+  const dirs = file.split('/')
+  const filename = dirs.pop()
+  const dirHandle = await _dir(dirs)
+
+  return dirHandle.removeEntry(filename)
+}
+
 async function open(file) {
+  if (typeof file === 'object') return file
   const dirs = file.split('/')
   const filename = dirs.pop()
   const dirHandle = await _dir(dirs)
@@ -34,11 +54,20 @@ async function open(file) {
 }
 
 async function stat(file) {
-  const fileHandle = await open(file)
-  const fileStat = await fileHandle.getFile()
-
-  return {
-    size: fileStat.size,
+  try {
+    const fileHandle = await open(file)
+    const fileStat = await fileHandle.getFile()
+    return {
+      size: fileStat.size,
+      isFile() { return true },
+      isDirectory() { return false },
+    }
+  } catch {
+    await _dir(file)
+    return {
+      isFile() { return false },
+      isDirectory() { return true },
+    }
   }
 }
 
@@ -61,8 +90,11 @@ async function $rm(dirHandle, prefix = '') {
 export default {
   mkdir,
   readdir,
+  readFile,
+  unlink,
   open,
   stat,
+  lstat: stat,
   $ls,
   $rm
 }

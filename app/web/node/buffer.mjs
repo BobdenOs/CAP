@@ -1,6 +1,8 @@
 globalThis.Buffer = class Buffer {
   static isBuffer(x) { return x instanceof Uint8Array }
   static from(x, encoding) {
+    if (x instanceof ArrayBuffer) return new Uint8Array(x)
+    if (Array.isArray(x)) return Uint8Array.from(x)
     switch (encoding) {
       case 'base64':
         return Uint8Array.fromBase64(x)
@@ -10,8 +12,13 @@ globalThis.Buffer = class Buffer {
         return (new TextEncoder()).encode(x)
     }
   }
+
+  static alloc(size) {
+    return Buffer.from(Uint8Array.from(new Array(size).fill(0)))
+  }
+
   static concat(arrays) {
-    const totalLength = arrays.reduce((total, array) => total + array.byteLength,0)
+    const totalLength = arrays.reduce((total, array) => total + array.byteLength, 0)
 
     const result = new Uint8Array(totalLength)
 

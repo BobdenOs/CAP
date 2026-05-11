@@ -20,10 +20,280 @@ module.exports = class APPService extends cds.ApplicationService {
     this.on(["INSERT"], this.onINSERT);
     this.on(["UPDATE"], this.onUPDATE);
 
+    if (cds.app) this.static()
+
+    cds.on('listening', () => this._loadApps())
+  }
+
+  disconnect() { }
+
+  async onSELECT(req) {
+    const q = cqn4sql(req.query, this.model);
+
+    return this._store.applications
+  }
+
+  async onINSERT(req) {
+    const q = cqn4sql(req.query, this.model);
+
+    return { changes: 0 }
+  }
+
+  async onUPDATE(req) {
+    const q = cqn4sql(req.query, this.model || cds.model);
+
+    // Identify what application is being uploaded
+    const application = q.UPDATE.where.find(e => typeof e.val === 'string')?.val
+    if (!application) {
+      throw Object.assign(new Error('Application name missing'), { code: 400 })
+    }
+
+    const app = await this._ensureApplication(application)
+    if (app.status === 'running') {
+      app.status = 'upgrading'
+    }
+    // TODO: Add mtar support ?
+    // Extract uploaded archive as .tar format (used for npm pack uploads)
+    let appFolder = `${this._root}${application}`
+    await cds.utils.fs.promises.mkdir(appFolder, { recursive: true })
+
+    if (q.UPDATE.data?.src) {
+
+      // Split the stream into two streams for storing and unpacking at the same time
+      const [toTar, toFs] = Readable.toWeb(q.UPDATE.data.src).tee().map(s => Readable.fromWeb(s))
+
+      // Store archive to sap.cap.fs service
+      const fs = await this.fs
+      const update = fs.run(
+        cds.ql.UPDATE(fs.entities.files)
+          .with({ dataType: 'application/x-tar', data: toFs })
+          .where`name=${application}`
+      )
+
+      // Stream archive into tar to be unpacked
+      const tar = cds.utils.tar.xz(toTar).to(appFolder)
+      await Promise.all([tar, update])
+
+      // await new Promise((resolve) => setTimeout(resolve, 10000))
+    } else {
+      const fs = await this.fs
+      // TODO: this query should include the current domain to no auto host all parent applications
+      const chunks = await fs.run(cds.ql.SELECT('data').from(fs.entities.chunks).where`file.name = ${application}`)
+      if (chunks.length < 1) {
+        app.status = 'failed'
+        return { changes: 1 }
+      }
+      const [{ data: toTar }] = chunks
+
+      // Stream archive into tar to be unpacked
+      const tar = cds.utils.tar.xz(toTar).to(appFolder)
+      await tar
+    }
+
+    // when using npm pack there is a package folder which is moved to root
+    appFolder = `${appFolder}/package`
+    // const packageFolder = `${appFolder}/package`
+    // await cds.utils.fs.promises.cp(packageFolder, appFolder, { recursive: true })
+    // await cds.utils.fs.promises.rm(packageFolder, { force: true, recursive: true })
+    // await cds.utils.fs.promises.symlink(cds.utils.path.resolve(`${cds.home}/../../`), `${appFolder}/node_modules`)
+    //   .catch(err => { })
+
+    if (!cds.db) await cds.connect.to('db')
+
+    const rootDB = cds.db
+    const rootApp = cds.app
+    const rootModel = cds.model
+    const rootDomain = cds.env.ssl.names[0]
+    const rootServices = cds.services
+    const rootProviders = cds.service.providers
+
+    try {
+      const isOffline = typeof caches !== 'undefined'
+
+      // TODO: cds.load uses sync file operations
+      let csn
+      if (!isOffline) {
+        csn = await cds.load(`${appFolder}/*`)
+      } else {
+        const cdsFiles = (await Promise.all([
+          cds.utils.fs.promises.readdir(`${appFolder}/db`).then(files => files.map(f => `${appFolder}/db/${f}`)),
+          cds.utils.fs.promises.readdir(`${appFolder}/srv`).then(files => files.map(f => `${appFolder}/srv/${f}`)),
+          cds.utils.fs.promises.readdir(`${appFolder}/app`).then(files => files.map(f => `${appFolder}/app/${f}`)),
+        ]))
+          .flat()
+          .filter(f => f.endsWith('.cds'))
+
+        const cdsContent = (await Promise.all(
+          cdsFiles.map(async f => ({ [f]: await cds.utils.fs.promises.readFile(f) }))
+        ))
+          .reduce((l, c) => Object.assign(l, c))
+
+        const commons = [
+          './web/node_modules/@sap/cds/common.cds'
+        ]
+        Object.assign(cdsContent,
+          (await Promise.all(
+            commons.map(url => caches.match(new Request(url)).then(async response => ({ [url]: await response.text() })))
+          ))
+            .reduce((l, c) => Object.assign(l, c), {})
+        )
+
+        csn = cds.compile(cdsContent)
+      }
+      const model = cds.compile.for.nodejs(csn)
+
+      if (isOffline) {
+        for (const srv of model.services) {
+          try {
+            const file = srv.$location.file.replace('.cds', '.js')
+            const source = await cds.utils.fs.promises.readFile(file)
+            const resolve = require('node:module').createRequire(file).resolve
+            const requires = {}
+            let transform = source
+            transform = transform.replace(/^#!.*/, '')
+            transform = transform.replace(/(?:lazyload|require) *\( *?['"](.*?)['"] *?\)/g, (_, path) => path === '@sap/cds' ? 'global.cds' : `({})`)
+
+            switch (cds.utils.path.extname(file)) {
+              case '.json': transform = `return ${transform}`
+                break
+              case '.cjs':
+              case '.js': transform = `
+if(module.__loaded__) { return module.exports }
+module.__loaded__ = true
+module.exports = exports;
+${transform}
+return module.exports
+`
+                break;
+            }
+
+            const localRequire = function () { throw Object.assign(new Error('require in browser'), { code: 'MODULE_NOT_FOUND' }) }
+            localRequire.resolve = function (id) {
+              if (id[0] === '.') return new URL(id, file).pathname
+              throw Object.assign(new Error('require.resolve in browser'), { code: 'MODULE_NOT_FOUND' })
+            }
+            const impl = new Function('exports', 'module', 'require', '__dirname', '__filename', transform).bind(globalThis, {}, {}, localRequire, new URL('.', `https://host/${file}`).pathname, new URL('', `https://host/${file}`).pathname)
+            srv['@impl'] = impl()
+          } catch (err) { debugger }
+        }
+      }
+
+      cds.db = rootDB.bind({ model })
+      // cds.app = undefined
+      cds.model = model
+      cds.services = { __proto__: rootServices }
+      cds.service.providers = []
+
+      // Serve app
+      if (isOffline) await cds.serve('all')
+      else await cds.serve('all').in(rootApp)
+      // cds.deploy is not needed as the sap.cap.db will create the entity on the fly
+      // when the first piece of data is written to the entity
+      const dataSources = {}
+      if (isOffline) {
+        const dataFolders = [`${appFolder}/db/data`]
+        for (const folder of dataFolders) {
+          const dataFiles = await cds.utils.fs.promises.readdir(folder)
+          for (const file of dataFiles) {
+            if (file.indexOf('.') < 0) continue
+            const path = `${folder}/${file}`
+            dataSources[path] = await cds.utils.fs.promises.readFile(path)
+          }
+        }
+      }
+
+      await cds.deploy.data(cds.db, cds.db.model, {}, dataSources)
+      await cds.emit('served', cds.services)
+
+      for (const each of cds.service.providers) {
+        const endpoint = each.endpoints[0]
+        cds.service.bindings.provides[each.name] = {
+          kind: endpoint.kind,
+          credentials: {
+            url: `${app.name}.${rootDomain}${endpoint.path}`
+          }
+        }
+      }
+
+      Object.defineProperty(app, 'db', { value: cds.db, configurable: true })
+      Object.defineProperty(app, 'model', { value: (app.db.model = cds.model), configurable: true })
+      Object.defineProperty(app, 'services', { value: cds.services, configurable: true })
+      Object.defineProperty(app, 'providers', { value: cds.service.providers, configurable: true })
+
+      if (!isOffline) {
+        Object.defineProperty(app, 'static', {
+          value: express.static(cds.utils.path.resolve(appFolder, 'app')),
+          configurable: true,
+        })
+      }
+
+      const appIndex = cds.utils.fs.find(appFolder, ['app/*.html', 'app/*/*.html', 'app/*/*/*.html'])
+        .map(file => 'https://' + cds.utils.fs.path.relative(appFolder, file).replace(/\\/g, '/').replace('app/', isOffline ? `${rootDomain.replace('offline.', '')}/apps/${application}` : `${application}.${rootDomain}/`))
+      Object.defineProperty(app, 'appIndex', { value: appIndex[0], configurable: true })
+
+      if (isOffline) {
+        const files = await cds.utils.fs.promises.readdir(`${appFolder}/app`, { recursive: true })
+        const cache = await caches.open('CAP_CACHE')
+
+        for (const file of files) {
+          const ext = cds.utils.path.extname(file)
+          if (!ext.startsWith('.')) continue
+          const mimes = {
+            '.html': 'text/html',
+            '.js': 'text/javascript',
+            '.mjs': 'text/javascript',
+          }
+          cache.put(`${location.href.replace('/main.mjs', '')}/apps/${application}/${file}`, new Response(await cds.utils.fs.promises.readFile(`${appFolder}/app/${file}`), { headers: { 'content-type': mimes[ext] || 'plain/text' } }))
+        }
+      }
+    } finally {
+      cds.db = rootDB
+      cds.app = rootApp
+      cds.model = rootModel
+      cds.services = rootServices
+      cds.service.providers = rootProviders
+
+      try {
+        await cds.spawn({ user: rootDomain }, async () => {
+          const dns = await cds.connect.to('sap.cap.dns')
+          const { A, AAAA } = dns.entities
+
+          await Promise.all([
+            dns.run(SELECT(A).where([{ ref: ['name'] }, '=', { val: rootDomain }]))
+              .then(ips => dns.run(INSERT(ips.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(A))),
+            dns.run(SELECT(AAAA).where([{ ref: ['name'] }, '=', { val: rootDomain }]))
+              .then(ips => dns.run(INSERT(ips.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(AAAA))),
+          ])
+        })
+      } catch { }
+
+      app.status = 'failed'
+    }
+
+    app.status = 'running'
+
+    return { changes: 1 }
+  }
+
+  get fs() {
+    return super.fs = cds.connect.to('sap.cap.fs').then(fs => fs.bind(this))
+  }
+
+  static() {
     const fioriConfig = '/appconfig/fioriSandboxConfig.json'
-    const rootStaticDir = cds.utils.path.resolve(cds.root, 'app')
-    const rootStatic = express.static(rootStaticDir)
+    const rootStaticDir = cds.utils.path.resolve(cds.root, 'dist')
+    // express.static.mime.define({ 'text/javascript': ['js', 'mjs', 'cjs', 'json'] })
+    const rootStatic = express.static(rootStaticDir, {
+      setHeaders: (res, filePath) => {
+        if (!res.getHeader('content-type')) res.setHeader('content-type', express.static.mime.lookup(filePath))
+        // if (res.getHeader('content-type') === 'application/octet-stream') { debugger }
+      }
+    })
     cds.app.use('/', async (req, res, next) => {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
       const host = req.hostname
       let app
       if (host) for (let name of cds.env.ssl.names) if (host.endsWith(name)) app = host.slice(0, name.length * -1 - 1)
@@ -46,6 +316,12 @@ module.exports = class APPService extends cds.ApplicationService {
           return next(err)
         }
       }
+
+      if (req.path === '/main.mjs') {
+        res.setHeader('Service-Worker-Allowed', ['/', 'https://bookshop.dev.sap.cap/'])
+      }
+
+      return rootStatic(req, res, next)
 
       return rootStatic(req, res, (err) => {
         if (req.path.startsWith('/web/') && !req.path.startsWith('/web/node/')) {
@@ -96,7 +372,7 @@ return module.exports
             for (const path in requires) {
               transform = `import __IMPORT_${requires[path]}__ from '${path.startsWith(cds.root) ? `/web${path.slice(cds.root.length)}` : `/web/node/${path.replace('node:', '')}.mjs`}'\n${transform}`
             }
-            res.set('content-type', 'application/javascript')
+            res.set('content-type', 'text/javascript')
             res.end(transform)
             return
           } catch (err) {
@@ -108,159 +384,6 @@ return module.exports
         next(err)
       })
     })
-
-    cds.on('listening', () => this._loadApps())
-  }
-
-  disconnect() { }
-
-  async onSELECT(req) {
-    const q = cqn4sql(req.query, this.model);
-
-    return this._store.applications
-  }
-
-  async onINSERT(req) {
-    const q = cqn4sql(req.query, this.model);
-
-    return { changes: 0 }
-  }
-
-  async onUPDATE(req) {
-    const q = cqn4sql(req.query, this.model || cds.model);
-
-    // Identify what application is being uploaded
-    const application = q.UPDATE.where.find(e => typeof e.val === 'string')?.val
-    if (!application) {
-      throw Object.assign(new Error('Application name missing'), { code: 400 })
-    }
-
-    const app = await this._ensureApplication(application)
-    if (app.status === 'running') {
-      app.status = 'upgrading'
-    }
-    // TODO: Add mtar support ?
-    // Extract uploaded archive as .tar format (used for npm pack uploads)
-    const appFolder = `${this._root}${application}`
-    await cds.utils.fs.promises.mkdir(appFolder, { recursive: true })
-
-    if (q.UPDATE.data?.src) {
-
-      // Split the stream into two streams for storing and unpacking at the same time
-      const [toTar, toFs] = Readable.toWeb(q.UPDATE.data.src).tee().map(s => Readable.fromWeb(s))
-
-      // Store archive to sap.cap.fs service
-      const fs = await this.fs
-      const update = fs.run(
-        cds.ql.UPDATE(fs.entities.files)
-          .with({ dataType: 'application/x-tar', data: toFs })
-          .where`name=${application}`
-      )
-
-      // Stream archive into tar to be unpacked
-      const tar = cds.utils.tar.xz(toTar).to(appFolder)
-      await Promise.all([tar, update])
-
-      await new Promise((resolve) => setTimeout(resolve, 10000))
-    } else {
-      const fs = await this.fs
-      // TODO: this query should include the current domain to no auto host all parent applications
-      const chunks = await fs.run(cds.ql.SELECT('data').from(fs.entities.chunks).where`file.name = ${application}`)
-      if (chunks.length < 1) {
-        app.status = 'failed'
-        return { changes: 1 }
-      }
-      const [{ data: toTar }] = chunks
-
-      // Stream archive into tar to be unpacked
-      const tar = cds.utils.tar.xz(toTar).to(appFolder)
-      await tar
-    }
-
-    // when using npm pack there is a package folder which is moved to root
-    const packageFolder = `${appFolder}/package`
-    await cds.utils.fs.promises.cp(packageFolder, appFolder, { recursive: true })
-    await cds.utils.fs.promises.rm(packageFolder, { force: true, recursive: true })
-    await cds.utils.fs.promises.symlink(cds.utils.path.resolve(`${cds.home}/../../`), `${appFolder}/node_modules`)
-      .catch(err => { })
-
-    if (!cds.db) await cds.connect.to('db')
-
-    const rootDB = cds.db
-    const rootApp = cds.app
-    const rootModel = cds.model
-    const rootDomain = cds.env.ssl.names[0]
-    const rootServices = cds.services
-    const rootProviders = cds.service.providers
-
-    try {
-      const csn = await cds.load(`${appFolder}/*`)
-      const model = cds.compile.for.nodejs(csn)
-
-      cds.db = rootDB.bind({ model })
-      // cds.app = undefined
-      cds.model = model
-      cds.services = { __proto__: rootServices }
-      cds.service.providers = []
-
-      // Serve app
-      await cds.serve('all').in(rootApp)
-      // cds.deploy is not needed as the sap.cap.db will create the entity on the fly
-      // when the first piece of data is written to the entity
-      await cds.deploy.data(cds.db)
-      await cds.emit('served', cds.services)
-
-      for (const each of cds.service.providers) {
-        const endpoint = each.endpoints[0]
-        cds.service.bindings.provides[each.name] = {
-          kind: endpoint.kind,
-          credentials: {
-            url: `${app.name}.${rootDomain}${endpoint.path}`
-          }
-        }
-      }
-
-      Object.defineProperty(app, 'db', { value: cds.db, configurable: true })
-      Object.defineProperty(app, 'model', { value: (app.db.model = cds.model), configurable: true })
-      Object.defineProperty(app, 'services', { value: cds.services, configurable: true })
-      Object.defineProperty(app, 'providers', { value: cds.service.providers, configurable: true })
-      Object.defineProperty(app, 'static', {
-        value: express.static(cds.utils.path.resolve(appFolder, 'app')),
-        configurable: true,
-      })
-
-      const appIndex = cds.utils.fs.find(appFolder, ['app/*.html', 'app/*/*.html', 'app/*/*/*.html'])
-        .map(file => 'https://' + cds.utils.fs.path.relative(appFolder, file).replace(/\\/g, '/').replace('app/', `${application}.${rootDomain}/`))
-      Object.defineProperty(app, 'appIndex', { value: appIndex[0], configurable: true })
-    } finally {
-      cds.db = rootDB
-      cds.app = rootApp
-      cds.model = rootModel
-      cds.services = rootServices
-      cds.service.providers = rootProviders
-
-      await cds.spawn({ user: rootDomain }, async () => {
-        const dns = await cds.connect.to('sap.cap.dns')
-        const { A, AAAA } = dns.entities
-
-        await Promise.all([
-          dns.run(SELECT(A).where([{ ref: ['name'] }, '=', { val: rootDomain }]))
-            .then(ips => dns.run(INSERT(ips.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(A))),
-          dns.run(SELECT(AAAA).where([{ ref: ['name'] }, '=', { val: rootDomain }]))
-            .then(ips => dns.run(INSERT(ips.map(ip => ({ ...ip, name: `${app.name}.${ip.name}` }))).into(AAAA))),
-        ])
-      })
-
-      app.status = 'failed'
-    }
-
-    app.status = 'running'
-
-    return { changes: 1 }
-  }
-
-  get fs() {
-    return super.fs = cds.connect.to('sap.cap.fs').then(fs => fs.bind(this))
   }
 
   async _loadApps() {
@@ -288,7 +411,7 @@ return module.exports
     this._store.applications.push(created)
     this._store.index[application] = created
 
-    created.port = Number(cds.app.server?.address()?.port || process.env.PORT || 443)
+    created.port = Number(cds.app?.server?.address()?.port || process.env.PORT || 443)
 
     return created
   }

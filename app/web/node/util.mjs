@@ -8,9 +8,15 @@ function formatWithOptions(options, format, ...data) {
   return format
 }
 
-const inspect = {
-  custom: Symbol('inspect custom')
+function inspect(value) {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return value
+  }
 }
+
+inspect.custom = Symbol('inspect custom')
 
 function inherits(ctor, superCtor) {
 

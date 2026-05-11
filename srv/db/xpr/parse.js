@@ -269,8 +269,8 @@ const parse = function (query, xpr, ret = []) {
                 const res = await subRoutine({ rowID })
                 if (!res) return
                 const data = Buffer.from(JSON.stringify(res))
-                parentRow.writeBigInt64LE(BigInt(data.byteLength), 24)
-                return Buffer.concat([parentRow.slice(0, 32), data])
+                // parentRow.writeBigInt64LE(BigInt(data.byteLength), 24)
+                return Buffer.concat([parentRow.slice(0, 24), Buffer.from(BigUint64Array.from([BigInt(data.byteLength)]).buffer), data])
               },
             }
           }

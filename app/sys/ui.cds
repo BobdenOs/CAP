@@ -3,10 +3,6 @@ using {
   sap.cap.dns.AAAA,
 } from '@cap-community/cap/srv/dns';
 
-////////////////////////////////////////////////////////////////////////////
-//
-//	Books Object Page
-//
 annotate A with @(
   Common.SemanticKey: [
     (name),

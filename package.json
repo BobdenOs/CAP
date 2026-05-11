@@ -31,6 +31,7 @@
     "ssl:root": "./ssl/root.sh",
     "ssl:server": "./ssl/server.sh",
     "ssl:client": "./ssl/client.sh",
+    "offline:build": "node ./srv/app/offline.js",
     "browser": "npm run dns:on && chromium https://sap.cap/"
   },
   "workspaces": [

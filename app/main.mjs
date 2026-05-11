@@ -7,35 +7,39 @@ import app from '/web/node_modules/@cap-community/cap/srv/app/index.js'
 import trc from '/web/node_modules/@cap-community/cap/srv/trc/index.js'
 
 import odata from '/web/node_modules/@sap/cds/libx/odata/ODataAdapter.js'
+import appService from '/web/node_modules/@sap/cds/srv/app-service.js'
 
-const endpoints = []
+import cacheFiles from '/cache.js'
 
-async function start() {
+async function install() {
+  caches.open('CAP_CACHE').then(cache => cache.addAll(cacheFiles))
+}
 
+async function activate() {
   const global = globalThis.global = globalThis
 
   const modelFiles = [
-    '/web/srv/index.cds',
-    '/web/node_modules/@sap/cds/srv/outbox.cds',
-    '/web/srv/fs/index.cds',
-    '/web/srv/db/index.cds',
-    '/web/srv/app/index.cds',
-    '/web/app/app.cds',
-    '/web/app/trc/ui.cds',
-    '/web/app/sys/ui.cds',
-    '/web/srv/trc/index.cds',
-    '/web/srv/dns/index.cds',
-    '/web/node_modules/@sap/cds/common.cds',
+    './web/srv/index.cds',
+    './web/node_modules/@sap/cds/srv/outbox.cds',
+    './web/srv/fs/index.cds',
+    './web/srv/db/index.cds',
+    './web/srv/app/index.cds',
+    './web/app/app.cds',
+    './web/app/trc/ui.cds',
+    './web/app/sys/ui.cds',
+    './web/app/app/ui.cds',
+    './web/srv/trc/index.cds',
+    './web/srv/dns/index.cds',
+    './web/node_modules/@sap/cds/common.cds',
   ]
 
-  caches.open('CAP_CACHE').then(cache => cache.addAll(modelFiles))
-
   const model = (await Promise.all(
-    modelFiles.map(url => caches.match(new Request(url)).then(async response => ({ [url]: await response.text() })))
+    modelFiles.map(url => caches.match(new Request(url)).then(async response => ({ [import.meta.resolve(url)]: await response.text() })))
   ))
     .reduce((l, c) => Object.assign(l, c), {})
 
   global.process = {
+    // platform: 'win32',
     env: {},
     stdout: {},
     cwd() { return '/' },
@@ -55,9 +59,10 @@ async function start() {
   globalThis.cds.requires.kinds.odata.impl = remote()
 
   Object.assign(cds.requires, {
+    'app-service': { impl: appService() },
     'sap.cap.fs': { impl: fs() },
     'sap.cap.db': { impl: db() },
-    // 'sap.cap.app': { impl: app() },
+    'sap.cap.app': { impl: app() },
     'sap.cap.trc': { impl: trc() },
     db: { impl: db() },
   })
@@ -65,35 +70,50 @@ async function start() {
   await cds.connect.to('sap.cap.fs')
   await cds.connect.to('sap.cap.trc')
   await cds.connect.to('sap.cap.db')
+  await cds.connect.to('sap.cap.app')
 
   const protOData = odata()
-  const protocols = {
-    'odata': protOData,
-    'odata-v4': protOData,
-  }
 
-  for (const service of cds.services) {
-    for (const endpoint of service.endpoints) {
-      // TODO: come up with a good way to enable protocol adapter implementation
-      endpoints.push({
-        path: endpoint.path,
-        adapter: new protocols[endpoint.kind](service, { prefix: endpoint.path }),
-      })
-    }
-  }
+  cds.service.protocols.rest.impl = protOData
+  cds.service.protocols.odata.impl = protOData
+  cds.service.protocols['odata-v4'].impl = protOData
 
+  // await cds.serve('all')
 }
 
-self.addEventListener('install', event => event.waitUntil(start()))
+self.addEventListener('install', event => event.waitUntil(install()))
+self.addEventListener('activate', event => event.waitUntil(activate()))
 
 self.addEventListener('fetch', event => {
-
-
   event.respondWith(
     caches.match(event.request).then(async response => {
-      const url = new URL(event.request.url)
-      const prot = endpoints.find(prefix => url.pathname.startsWith(prefix.path))
-      if (prot) return prot.adapter.router(event.request)
+      if (response) return response
+      if (typeof cds === 'undefined') await activate()
+
+      const pathname = event.request.url.replace(import.meta.resolve('./'), '/').replace(import.meta.resolve('/'), '/')
+
+      // handle request with cds services when defined
+      const app = cds.services['sap.cap.app']?.apps[/\/apps\/([^/]*)\//.exec(event.request.referrer)?.[1]]
+
+      const services = app?.services ?? cds.services
+      for (const service of services) {
+        for (const endpoint of service.endpoints) {
+          if (pathname.startsWith(endpoint.path)) {
+            if (app) cds.db = app.db
+            const prot = endpoint.adapter ??= new cds.service.protocols[endpoint.kind].impl(
+              service,
+              {
+                prefixes: [
+                  import.meta.resolve('./').replace(import.meta.resolve('/'), '/').slice(0, -1) + endpoint.path,
+                  endpoint.path,
+                ]
+              },
+            )
+            return prot.router(event.request)
+          }
+        }
+      }
+
       return response || fetch(event.request)
     })
   )

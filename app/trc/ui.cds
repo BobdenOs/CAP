@@ -1,9 +1,5 @@
 using sap.cap.trc.traces from '@cap-community/cap/srv/trc';
 
-////////////////////////////////////////////////////////////////////////////
-//
-//	Books Object Page
-//
 annotate traces with @(
   Common.SemanticKey: [ID],
   UI                : {

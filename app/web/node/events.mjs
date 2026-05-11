@@ -1,4 +1,4 @@
-class EventEmitter extends EventTarget {
+export class EventEmitter extends EventTarget {
   constructor() {
     super()
     this._events = {}
@@ -20,13 +20,20 @@ class EventEmitter extends EventTarget {
     ee.splice(ee.indexOf(cb), 1)
   }
   emit(event, ...args) {
-    for (const cb of this._events[event] ?? []) cb(...args)
+    for (const cb of [...this._events[event] ?? []]) cb(...args)
   }
   listeners(event) {
     return this._events[event] ?? []
   }
+
+  removeAllListeners(event) {
+    delete this._events[event]
+  }
+  removeListener(event, cb) {
+    return this.off(event, cb)
+  }
 }
 
-export default {
-  EventEmitter,
-}
+EventEmitter.EventEmitter = EventEmitter
+
+export default EventEmitter

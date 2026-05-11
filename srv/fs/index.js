@@ -47,19 +47,13 @@ module.exports = class FSService extends cds.ApplicationService {
     if (req.query._target !== files && req.query._target !== chunks) { debugger }
     let q = req.query
 
-    const external = []
-    if (cds.env.ssl.names[0] === 'dev.sap.cap' && !q.SELECT.one) {
-      const parent = await this._SELECT_Parent(req)
-        // REVISIT: used to identify cluster config issue when calling top level domains
-        .catch(err => { /*debugger*/ })
-      if (parent?.length) for (const row of parent) {
-        external.push(row)
-      }
-    }
-
+    const parent = () => q.SELECT.one ? [] : this._SELECT_Parent(req).catch((err) => {
+      return []
+    })
     if (q._target === files) {
+      const external = parent()
       const ret = await this.db.run(this.owner ? q.where`owner=${this.owner.name}` : q)
-      if (Array.isArray(ret)) for (const row of external) ret.push(row)
+      if (Array.isArray(ret)) for (const row of await external) ret.push(row)
       return ret
     }
     if (q._target === chunks) {
@@ -105,19 +99,22 @@ module.exports = class FSService extends cds.ApplicationService {
       }
 
       if (q.elements.data || req.http?.req?.url?.indexOf('$select=data')) q.columns`local,file_owner,file_name,index`
+      const external = parent()
       const ret = await this.db.run(this.owner?.name ? q.where`file_owner=${this.owner.name}` : q)
       const proms = []
       if (!Array.isArray(ret)) {
         if (ret.local) {
+          // REVISIT: always use createReadStream when it works over protocol adapters
           if (req.tx === req.context.tx && req?.http?.req) proms.push(cds.utils.fs.promises.readFile(this.owner ? `${this._root}${ret.file_name}#${ret.index}` : `${this._root}${ret.file_owner}/${ret.file_name}#${ret.index}`, 'base64').then(data => ret.data = data))
           else ret.data = cds.utils.fs.createReadStream(this.owner ? `${this._root}${ret.file_name}#${ret.index}` : `${this._root}${ret.file_owner}/${ret.file_name}#${ret.index}`)
         }
       } else {
         for (const row of ret) if (row.local) {
+          // REVISIT: always use createReadStream when it works over protocol adapters
           if (req.tx === req.context.tx && req?.http?.req) proms.push(cds.utils.fs.promises.readFile(this.owner ? `${this._root}${row.file_name}#${row.index}` : `${this._root}${row.file_owner}/${row.file_name}#${row.index}`, 'base64').then(data => row.data = data))
           else row.data = cds.utils.fs.createReadStream(this.owner ? `${this._root}${row.file_name}#${row.index}` : `${this._root}${row.file_owner}/${row.file_name}#${row.index}`)
         }
-        for (const parent of external) ret.push(parent)
+        for (const parent of await external) ret.push(parent)
       }
       if (proms.length) await Promise.all(proms)
 

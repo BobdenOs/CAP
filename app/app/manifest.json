@@ -1,17 +1,17 @@
 {
   "_version": "1.28.0",
   "sap.app": {
-    "id": "traces",
+    "id": "application",
     "type": "application",
-    "title": "Traces",
-    "description": "Traces dashboard",
+    "title": "Applications",
+    "description": "Applications dashboard",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
       "version": "1.0.0"
     },
     "dataSources": {
-      "trc": {
-        "uri": "../../../odata/v4/trc/",
+      "app": {
+        "uri": "../../../odata/v4/app/",
         "type": "OData",
         "settings": {
           "odataVersion": "4.0"
@@ -29,15 +29,15 @@
             },
             "additionalParameters": "ignored"
           },
-          "semanticObject": "traces",
+          "semanticObject": "applications",
           "action": "display",
           "title": "{{appTitle}}",
           "info": "{{appInfo}}",
           "subTitle": "{{appSubTitle}}",
           "icon": "sap-icon://past",
           "indicatorDataSource": {
-            "dataSource": "trc",
-            "path": "traces/$count",
+            "dataSource": "app",
+            "path": "applications/$count",
             "refresh": 1800
           }
         }
@@ -57,7 +57,7 @@
         "uri": "i18n/i18n.properties"
       },
       "": {
-        "dataSource": "trc",
+        "dataSource": "app",
         "settings": {
           "synchronizationMode": "None",
           "operationMode": "Server",
@@ -75,55 +75,59 @@
       "routes": [
         {
           "pattern": ":?query:",
-          "name": "tracesList",
-          "target": "tracesList"
+          "name": "applicationsList",
+          "target": "applicationsList"
         },
         {
-          "pattern": "traces({key}):?query:",
-          "name": "traceDetails",
-          "target": "traceDetails"
+          "pattern": "applications({key}):?query:",
+          "name": "applicationsDetails",
+          "target": "applicationsDetails"
         }
       ],
       "targets": {
-        "tracesList": {
+        "applicationsList": {
           "type": "Component",
-          "id": "tracesList",
+          "id": "applicationsList",
           "name": "sap.fe.templates.ListReport",
           "options": {
             "settings": {
-              "entitySet": "traces",
+              "entitySet": "applications",
               "initialLoad": false,
               "navigation": {
-                "traces": {
+                "applications": {
                   "detail": {
-                    "route": "traceDetails"
+                    "route": "applicationsDetails"
+                  }
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "actions": {
+                    "MenuActions": {
+                      "text": "{i18n>upload}",
+                      "menu": [
+                        "uploadTar"
+                      ]
+                    },
+                    "uploadTar": {
+                      "press": "app.Component.uploadTar",
+                      "enabled": true,
+                      "visible": true,
+                      "text": "{i18n>tar}"
+                    }
                   }
                 }
               }
             }
           }
         },
-        "traceDetails": {
+        "applicationsDetails": {
           "type": "Component",
-          "id": "traceDetails",
+          "id": "applicationsDetails",
           "name": "sap.fe.templates.ObjectPage",
           "options": {
             "settings": {
-              "content": {
-                "body": {
-                  "sections": {
-                    "customSection": {
-                      "template": "trc.custom.GanttTraces",
-                      "title": "{i18n>ganttTraces}",
-                      "position": {
-                        "placement": "After",
-                        "anchor": "traceDetails"
-                      }
-                    }
-                  }
-                }
-              },
-              "entitySet": "traces"
+              "entitySet": "applications"
             }
           }
         }

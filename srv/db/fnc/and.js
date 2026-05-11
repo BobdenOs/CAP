@@ -8,6 +8,8 @@ impl.sync = {}
 impl.sync.rows = {}
 impl.sync.rows.rows = {}
 impl.sync.rows.static = {}
+impl.sync.static = {}
+impl.sync.static.static = {}
 
 // -- sync impl
 impl.sync.rows.rows.rows = async function (a, b) {
@@ -20,6 +22,13 @@ impl.sync.rows.rows.rows = async function (a, b) {
 
 impl.sync.rows.rows.rows.args = [rows, rows]
 impl.sync.rows.rows.rows.ret = rows
+
+impl.sync.rows.static.static = async function (a, b) {
+  return b() && a()
+}
+
+impl.sync.rows.static.static.args = [statics.unknown, statics.unknown]
+impl.sync.rows.static.static.ret = statics.unknown
 
 impl.sync.rows.rows.static = async function (a, b) {
   if (!b()) return []
@@ -39,6 +48,8 @@ impl.sync.rows.static.rows.ret = rows
 
 // All implemented APIs for the function in order of preference
 const apis = [
+  // impl.sync.rows.static.static,
+
   impl.sync.rows.rows.static,
   impl.sync.rows.static.rows,
 

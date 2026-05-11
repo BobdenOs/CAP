@@ -58,7 +58,7 @@
     },
     {
       "name": "Launch dev.sap.cap",
-      "command": "HOST=$(ip addr show eth0 | grep -oP '\\d+\\.\\d+\\.\\d+\\.\\d+' | head -n 1) HOST6=$(ip addr show eth0 | grep global | grep -oP '[\\w:]*:[\\w:]+' | head -n 1) sudo -E $(which node) $(pwd)/node_modules/.bin/cds-serve",
+      "command": "export HOST=$(ip addr show eth0 | grep -oP '\\d+\\.\\d+\\.\\d+\\.\\d+' | head -n 1) && export HOST6=$(ip addr show eth0 | grep global | grep -oP '[\\w:]*:[\\w:]+' | head -n 1) && (sudo kill -9 $(sudo lsof -i -n -P | grep \"$HOST:443 (LISTEN)\" | awk -v n=2 '{print $n}') || true) && sudo -E $(which node) $(pwd)/node_modules/.bin/cds-serve",
       "request": "launch",
       "type": "node-terminal",
       "env": {
