@@ -38,7 +38,7 @@ jobs:
       - name: Build
         run: npm run offline:build
       - name: Prepare Upload
-        run: mkdir /tmp/upload/ && mv ./dist/ /tmp/upload/
+        run: mkdir /tmp/upload/ && mv ./dist/ /tmp/upload/ && cp -r /tmp/upload/dist/appconfig/ /tmp/upload/appconfig
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
